@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import { CssFontAdapter, growtype, renderGrowtype } from "../src/index.ts";
+import { polygonOverlap } from "../src/geometry.ts";
 import { font } from "./helpers.ts";
 
 const opts = {
@@ -69,12 +70,33 @@ describe("growtype", () => {
     expect(varied).toMatch(/<g class="[a-z0-9]+-stem"/);
   });
 
+  test("avoidOverlap keeps neighbouring glyphs apart", () => {
+    const strong = { ...opts, text: "spores of thought", tilt: 35, twist: 20, wilt: 3 as const };
+    let before = 0;
+    let after = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      const count = (avoidOverlap: boolean) => {
+        const cs = growtype({ ...strong, seed, avoidOverlap }).characters;
+        let n = 0;
+        for (let i = 0; i + 1 < cs.length; i++) {
+          if (polygonOverlap(cs[i]!.outline, cs[i + 1]!.outline) > 2) n++;
+        }
+        return n;
+      };
+      before += count(false);
+      after += count(true);
+    }
+    expect(before).toBeGreaterThan(10);
+    expect(after).toBeLessThanOrEqual(1);
+  });
+
   test("tilt range bounds the lean", () => {
     const r = growtype({
       ...opts,
       path: "M0 200 L500 200",
       tilt: [10, 10],
       twist: 0,
+      avoidOverlap: false,
       stemLengthVariance: 0,
     });
     for (const c of r.characters) {

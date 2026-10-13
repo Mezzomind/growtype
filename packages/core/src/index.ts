@@ -6,6 +6,7 @@ export type {
   SwayOptions,
   WaveOptions,
   SporeOptions,
+  BlastOptions,
   PathStyle,
   Justify,
   LayoutMode,

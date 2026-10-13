@@ -8,23 +8,33 @@ const base = {
   letterSpacing: 0,
   pathLength: 1000,
   mode: "natural" as const,
-  justify: "left" as const,
+  justify: "start" as const,
   inset: 0,
 };
 
 describe("layoutText", () => {
-  test("left / center / right justification", () => {
+  test("start / center / end alignment", () => {
     const left = layoutText({ ...base, text: "moss" });
     const width = left.end - left.start;
     expect(left.start).toBe(0);
     const center = layoutText({ ...base, text: "moss", justify: "center" });
     expect(center.start).toBeCloseTo((1000 - width) / 2);
-    const right = layoutText({ ...base, text: "moss", justify: "right" });
+    const right = layoutText({ ...base, text: "moss", justify: "end" });
     expect(right.end).toBeCloseTo(1000);
   });
 
+  test("end alignment places the last character at the end of the path", () => {
+    const r = layoutText({ ...base, text: "moss", justify: "end" });
+    const last = r.chars[r.chars.length - 1]!;
+    expect(last.s + last.advance / 2).toBeCloseTo(1000);
+    // Characters still read in order from the start of the string.
+    expect(r.chars.map((c) => c.char).join("")).toBe("moss");
+    const first = layoutText({ ...base, text: "moss", justify: "start" }).chars[0]!;
+    expect(first.s - first.advance / 2).toBeCloseTo(0);
+  });
+
   test("respects inset", () => {
-    const r = layoutText({ ...base, text: "moss", justify: "right", inset: 50 });
+    const r = layoutText({ ...base, text: "moss", justify: "end", inset: 50 });
     expect(r.end).toBeCloseTo(950);
   });
 

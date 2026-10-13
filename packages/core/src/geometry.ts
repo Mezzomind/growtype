@@ -93,3 +93,84 @@ export function smoothPath(points: Point[], closed = false, tension = 1): string
   }
   return closed ? d + "Z" : d;
 }
+
+/** Convex hull (Andrew's monotone chain), counter-clockwise in a y-up sense. */
+export function convexHull(points: Point[]): Point[] {
+  const pts = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (pts.length < 3) return pts;
+  const cross = (o: Point, a: Point, b: Point) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower: Point[] = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2]!, lower[lower.length - 1]!, p) <= 0)
+      lower.pop();
+    lower.push(p);
+  }
+  const upper: Point[] = [];
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i]!;
+    while (upper.length >= 2 && cross(upper[upper.length - 2]!, upper[upper.length - 1]!, p) <= 0)
+      upper.pop();
+    upper.push(p);
+  }
+  upper.pop();
+  lower.pop();
+  return lower.concat(upper);
+}
+
+/**
+ * Separating-axis test for two convex polygons. Returns the overlap depth along the axis of least
+ * overlap: positive means they intersect by that much, negative is the gap between them.
+ */
+export function polygonOverlap(a: Point[], b: Point[]): number {
+  let best = Infinity;
+  for (const poly of [a, b]) {
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i]!;
+      const q = poly[(i + 1) % poly.length]!;
+      const ax = q.y - p.y;
+      const ay = p.x - q.x;
+      const l = Math.hypot(ax, ay);
+      if (l === 0) continue;
+      let minA = Infinity;
+      let maxA = -Infinity;
+      for (const v of a) {
+        const d = (v.x * ax + v.y * ay) / l;
+        if (d < minA) minA = d;
+        if (d > maxA) maxA = d;
+      }
+      let minB = Infinity;
+      let maxB = -Infinity;
+      for (const v of b) {
+        const d = (v.x * ax + v.y * ay) / l;
+        if (d < minB) minB = d;
+        if (d > maxB) maxB = d;
+      }
+      best = Math.min(best, Math.min(maxA, maxB) - Math.max(minA, minB));
+    }
+  }
+  return best;
+}
+
+/**
+ * Reduce a convex polygon to at most `max` vertices by repeatedly dropping the vertex whose
+ * removal loses the least area. The result stays convex and inside the original.
+ */
+export function simplifyHull(hull: Point[], max: number): Point[] {
+  const pts = [...hull];
+  const area = (a: Point, b: Point, c: Point) =>
+    Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+  while (pts.length > max) {
+    let best = 0;
+    let bestArea = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const a = area(pts[(i - 1 + pts.length) % pts.length]!, pts[i]!, pts[(i + 1) % pts.length]!);
+      if (a < bestArea) {
+        bestArea = a;
+        best = i;
+      }
+    }
+    pts.splice(best, 1);
+  }
+  return pts;
+}

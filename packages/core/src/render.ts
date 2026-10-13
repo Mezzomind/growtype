@@ -1,6 +1,19 @@
 import { toFontAdapter } from "./font.ts";
-import { type Point, add, angleDeg, clamp, fmt, leftNormal, rotate, scale } from "./geometry.ts";
-import { layoutText } from "./layout.ts";
+import {
+  type Point,
+  add,
+  angleDeg,
+  clamp,
+  dist,
+  fmt,
+  leftNormal,
+  lerp,
+  polygonOverlap,
+  rotate,
+  scale,
+  sub,
+} from "./geometry.ts";
+import { type LaidOutChar, layoutText } from "./layout.ts";
 import {
   DEFAULTS,
   type GrowOptions,
@@ -30,6 +43,12 @@ export interface PlacedCharacter {
   rotation: number;
   /** Seconds after load when this character starts growing (0 without `grow`). */
   growDelay: number;
+  /** Wilt intensity actually applied, 0–1. */
+  wilt: number;
+  /** Seconds (on the animation timeline) when the blast front reaches this character. */
+  blastHit?: number;
+  /** Convex outline of the glyph in SVG coordinates. */
+  outline: Point[];
 }
 
 export interface GrowtypeResult {
@@ -88,9 +107,150 @@ function css(p: string): string {
     `@keyframes ${p}-sway{0%,100%{transform:rotate(0)}25%{transform:rotate(var(--a))}75%{transform:rotate(calc(var(--a) * -1))}}`,
     `@keyframes ${p}-gust{0%{transform:rotate(0)}10%{transform:rotate(var(--g))}22%{transform:rotate(calc(var(--g) * -.35))}32%{transform:rotate(calc(var(--g) * .12))}42%,100%{transform:rotate(0)}}`,
     `@keyframes ${p}-drift{0%,100%{transform:translate(0,0)}50%{transform:translate(var(--dx),var(--dy))}}`,
+    `.${p} .${p}-blast,.${p} .${p}-ring,.${p} .${p}-debris,.${p} .${p}-push{transform-box:view-box}`,
+    `.${p}-blast{animation:${p}-blast 1.6s ease-out}`,
+    `.${p}-ring{animation:${p}-ring 1s linear both}`,
+    `.${p}-debris{animation:${p}-debris 1s cubic-bezier(.2,.7,.3,1) both}`,
+    `.${p}-push{animation:${p}-push 1.4s cubic-bezier(.2,.7,.3,1)}`,
+    `@keyframes ${p}-blast{0%{transform:rotate(0)}8%{transform:rotate(var(--k))}24%{transform:rotate(calc(var(--k) * -.55))}40%{transform:rotate(calc(var(--k) * .3))}58%{transform:rotate(calc(var(--k) * -.14))}76%{transform:rotate(calc(var(--k) * .05))}100%{transform:rotate(0)}}`,
+    `@keyframes ${p}-ring{0%{transform:scale(.01);opacity:0}6%{opacity:1}70%{opacity:.7}100%{transform:scale(var(--r));opacity:0}}`,
+    `@keyframes ${p}-debris{0%{transform:translate(0,0);opacity:0}6%{opacity:.9}100%{transform:translate(var(--dx),var(--dy));opacity:0}}`,
+    `@keyframes ${p}-push{0%{transform:translate(0,0)}12%{transform:translate(var(--px),var(--py))}100%{transform:translate(0,0)}}`,
     `@media (prefers-reduced-motion:reduce){.${p} *{animation:none!important}}`,
   ].join("");
 }
+
+interface Pose {
+  c: LaidOutChar;
+  base: Point;
+  tangent: Point;
+  normal: Point;
+  /** Lean of the stalk in degrees (positive = clockwise). */
+  lean: number;
+  length: number;
+  /** Glyph rotation relative to its stalk, degrees. */
+  twist: number;
+  /** Wilt intensity 0–1. */
+  u: number;
+  /** Droop magnitude in degrees (from wilt); direction is `droopSign`. */
+  droop: number;
+  droopSign: number;
+  anchorLocal: Point;
+  /** When the blast front reaches this sprout. */
+  hit: number;
+}
+
+function poseGeometry(q: Pose) {
+  const phi = q.lean + q.droopSign * q.droop;
+  const tipDir = rotate(q.normal, phi + q.droopSign * q.u * 6 + q.twist);
+  const anchorPt = add(q.base, scale(rotate(q.normal, phi), q.length * (1 - 0.12 * q.u)));
+  return { tipDir, anchorPt, rotation: angleDeg(tipDir) + 90, glyphScale: 1 - 0.07 * q.u };
+}
+
+/** The glyph's convex outline in SVG coordinates. */
+function glyphHull(q: Pose): Point[] {
+  const hull = q.c.glyph.hull;
+  if (!hull) return [];
+  const { anchorPt, rotation, glyphScale } = poseGeometry(q);
+  return hull.map((h) => add(anchorPt, rotate(scale(sub(h, q.anchorLocal), glyphScale), rotation)));
+}
+
+/** A thin quad standing in for the stalk. */
+function stemQuad(q: Pose, half: number): Point[] {
+  const { anchorPt } = poseGeometry(q);
+  const d = sub(anchorPt, q.base);
+  const l = Math.hypot(d.x, d.y) || 1;
+  const n = { x: (-d.y / l) * half, y: (d.x / l) * half };
+  return [add(q.base, n), add(anchorPt, n), sub(anchorPt, n), sub(q.base, n)];
+}
+
+/**
+ * Nudge poses until no glyph overlaps its neighbours' glyphs or stalks by more than it would if
+ * both stood straight up. Colliding pairs are made parallel and eased towards upright, with their
+ * twist damped; untouched sprouts keep their randomness.
+ */
+function resolveOverlaps(poses: Pose[], o: { fontSize: number; stemHalf: number }) {
+  const gap = o.fontSize * 0.04;
+
+  interface Shape {
+    glyph: Point[];
+    stem: Point[];
+    box: [number, number, number, number];
+  }
+  const shapeOf = (q: Pose): Shape => {
+    const glyph = glyphHull(q);
+    const stem = stemQuad(q, o.stemHalf);
+    let x1 = Infinity;
+    let y1 = Infinity;
+    let x2 = -Infinity;
+    let y2 = -Infinity;
+    for (const v of [...glyph, ...stem]) {
+      x1 = Math.min(x1, v.x);
+      y1 = Math.min(y1, v.y);
+      x2 = Math.max(x2, v.x);
+      y2 = Math.max(y2, v.y);
+    }
+    return { glyph, stem, box: [x1, y1, x2, y2] };
+  };
+  const clash = (a: Shape, b: Shape): number => {
+    if (!a.glyph.length || !b.glyph.length) return -Infinity;
+    // Cheap reject: bounding boxes further apart than the gap can't matter.
+    const sep = Math.max(
+      a.box[0] - b.box[2],
+      b.box[0] - a.box[2],
+      a.box[1] - b.box[3],
+      b.box[1] - a.box[3],
+    );
+    if (sep > gap * 2) return -sep;
+    return Math.max(
+      polygonOverlap(a.glyph, b.glyph),
+      polygonOverlap(a.glyph, b.stem),
+      polygonOverlap(a.stem, b.glyph),
+    );
+  };
+  const upright = (q: Pose): Pose => ({ ...q, lean: 0, twist: 0, droop: 0 });
+
+  const shapes = poses.map(shapeOf);
+  const pairs: Array<{ i: number; j: number; allowed: number }> = [];
+  for (let i = 0; i < poses.length; i++) {
+    for (let j = i + 1; j <= i + 2 && j < poses.length; j++) {
+      // Some overlap is inherent (tight kerning, hollows in the path): measure it with both
+      // standing straight up, and only correct what leaning and twisting add on top.
+      const inherent = clash(shapeOf(upright(poses[i]!)), shapeOf(upright(poses[j]!)));
+      pairs.push({ i, j, allowed: Math.max(0, inherent + gap) + o.fontSize * 0.02 });
+    }
+  }
+  for (let iter = 0; iter < 120; iter++) {
+    let moved = false;
+    for (const pr of pairs) {
+      const excess = clash(shapes[pr.i]!, shapes[pr.j]!) + gap - pr.allowed;
+      if (excess <= 0) continue;
+      moved = true;
+      const a = poses[pr.i]!;
+      const b = poses[pr.j]!;
+      // Make the pair parallel – same lean, same droop direction – which keeps their spacing even,
+      // and ease both towards upright, which is guaranteed to be clear.
+      const mean = ((a.lean + b.lean) / 2) * 0.9;
+      a.lean += (mean - a.lean) * 0.5;
+      b.lean += (mean - b.lean) * 0.5;
+      a.twist *= 0.6;
+      b.twist *= 0.6;
+      b.droopSign = a.droopSign;
+      if (iter >= 20) {
+        a.droop *= 0.85;
+        b.droop *= 0.85;
+      }
+      shapes[pr.i] = shapeOf(a);
+      shapes[pr.j] = shapeOf(b);
+    }
+    if (!moved) break;
+  }
+}
+
+const smoothstep = (t: number) => {
+  const x = clamp(t, 0, 1);
+  return x * x * (3 - 2 * x);
+};
 
 /** Render text growing out of a path. Returns the SVG and layout details. */
 export function growtype(options: GrowtypeOptions): GrowtypeResult {
@@ -171,7 +331,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       mode =
         layoutMode === "fill"
           ? "start"
-          : justify === "right"
+          : justify === "end"
             ? "end"
             : justify === "center"
               ? "center"
@@ -191,38 +351,79 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   const pathDrawTime = grow && pathStyle ? grow.pathDuration : 0;
   const growStart = grow ? grow.delay + pathDrawTime : 0;
 
-  const defs: string[] = [];
-  const charsOut: Array<{ s: number; base: Point; inner: string }> = [];
-  const sporesOut: string[] = [];
-  const placed: PlacedCharacter[] = [];
-  let growEndAll = 0;
+  // ---- Poses: how each sprout leans, how tall it stands and how wilted it is ----
+  const blast = o.blast ? { ...DEFAULTS.blast, ...o.blast } : null;
+  const fromWilt = blast?.fromWilt !== undefined ? wiltIndex(blast.fromWilt) : wilt;
+  const stemHalf = thickness * shrink * 0.8;
 
-  for (const c of visible) {
+  const poses: Pose[] = visible.map((c) => {
     const i = c.index;
     const r = (ch: string) => rng.value(i, ch);
     const base = sampler.pointAt(c.s);
     const tangent = sampler.tangentAt(c.s);
     const ln = leftNormal(tangent);
     const normal = side === "left" ? ln : scale(ln, -1);
-
-    // Lean, length, wilt.
     // Blend independent jitter with a smooth "field" so neighbours lean together and collide less.
     const leanT = clamp((1 - coherence) * r("tilt") + coherence * leanField(c.s), 0, 1);
     const lean = tiltMin + (tiltMax - tiltMin) * leanT;
-    const length = stemLength * shrink * (1 + lengthVar * (r("length") * 2 - 1));
-    // Per-character jitter fades in with the first stage so fractional wilt tweens smoothly from 0.
-    const u = clamp(wilt / 3 + (r("wilt") - 0.5) * 0.22 * Math.min(1, wilt), 0, 1);
-    const droopSign = Math.abs(lean) > 2 ? Math.sign(lean) : r("droop-side") < 0.5 ? -1 : 1;
-    const droop = droopSign * u * 13 * (0.75 + 0.5 * r("droop"));
-    const phi = lean + droop;
-    const tipDir = rotate(normal, phi + droopSign * u * 6 + twist * (r("twist") * 2 - 1));
-    const anchorPt = add(base, scale(rotate(normal, phi), length * (1 - 0.12 * u)));
-    const glyphScale = 1 - 0.07 * u;
-    const rotation = angleDeg(tipDir) + 90;
-
     const g = c.glyph;
-    const anchorLocal =
-      anchorMode === "ink" && g.inkBottom ? g.inkBottom : { x: g.advance / 2, y: 0 };
+    return {
+      c,
+      base,
+      tangent,
+      normal,
+      lean,
+      length: stemLength * shrink * (1 + lengthVar * (r("length") * 2 - 1)),
+      twist: twist * (r("twist") * 2 - 1),
+      u: 0,
+      droop: 0,
+      droopSign: Math.abs(lean) > 2 ? Math.sign(lean) : r("droop-side") < 0.5 ? -1 : 1,
+      anchorLocal: anchorMode === "ink" && g.inkBottom ? g.inkBottom : { x: g.advance / 2, y: 0 },
+      hit: 0,
+    };
+  });
+
+  // ---- Blast wave: when the front reaches each sprout, and the wilt it shows at timeOffset ----
+  let blastOrigin: Point | null = null;
+  let blastReach = 0;
+  if (blast && poses.length) {
+    const xs = poses.map((q) => q.base.x);
+    const midY =
+      poses.reduce((acc, q) => acc + q.base.y + q.normal.y * q.length * 0.6, 0) / poses.length;
+    blastOrigin = {
+      x: blast.direction === "left" ? Math.min(...xs) - fontSize : Math.max(...xs) + fontSize,
+      y: midY,
+    };
+    blastReach = Math.max(...poses.map((q) => dist(blastOrigin!, q.base)), 1);
+    for (const q of poses)
+      q.hit = blast.at + (blast.duration * dist(blastOrigin, q.base)) / blastReach;
+  }
+  for (const q of poses) {
+    const r = (ch: string) => rng.value(q.c.index, ch);
+    const w = blast ? lerp(fromWilt, wilt, smoothstep((timeOffset - q.hit) / 0.35)) : wilt;
+    // Per-character jitter fades in with the first stage so fractional wilt tweens smoothly from 0.
+    q.u = clamp(w / 3 + (r("wilt") - 0.5) * 0.22 * Math.min(1, w), 0, 1);
+    q.droop = q.u * 13 * (0.75 + 0.5 * r("droop"));
+  }
+
+  // ---- Keep neighbours from overlapping ----
+  if ((o.avoidOverlap ?? DEFAULTS.avoidOverlap) && poses.length > 1) {
+    resolveOverlaps(poses, { fontSize, stemHalf });
+  }
+
+  const defs: string[] = [];
+  const charsOut: Array<{ s: number; base: Point; inner: string }> = [];
+  const sporesOut: string[] = [];
+  const debrisOut: string[] = [];
+  const placed: PlacedCharacter[] = [];
+  let growEndAll = 0;
+
+  for (const q of poses) {
+    const { c, base, tangent, normal, u, anchorLocal } = q;
+    const i = c.index;
+    const r = (ch: string) => rng.value(i, ch);
+    const { anchorPt, tipDir, rotation, glyphScale } = poseGeometry(q);
+    const g = c.glyph;
     // Push the stem a little way into the glyph so the joint reads as attached.
     const overlap = Math.min(thickness * shrink * 1.4, fontSize * 0.08);
     const tip = add(anchorPt, scale(tipDir, overlap));
@@ -337,6 +538,39 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
         }),
       })}>${inner}</g>`;
     }
+    if (blast) {
+      const dir = blast.direction === "left" ? 1 : -1;
+      const k = blast.strength * dir * (0.75 + 0.5 * r("blast"));
+      inner = `<g${attrs({
+        class: `${p}-blast`,
+        style: style({
+          "--k": `${fmt(k)}deg`,
+          "transform-origin": origin(base),
+          "animation-delay": at(q.hit),
+          "animation-duration": sec(blast.recoil),
+        }),
+      })}>${inner}</g>`;
+      // Debris knocked loose by the shock front.
+      const dr = rng.stream(i, "debris");
+      for (let k2 = 0; k2 < blast.debris; k2++) {
+        const from = add(base, scale(normal, q.length * dr()));
+        debrisOut.push(
+          `<circle${attrs({
+            class: `${p}-debris`,
+            cx: from.x,
+            cy: from.y,
+            r: (0.6 + dr() * 1.4) * shrink,
+            fill: blast.color ?? stemColor,
+            style: style({
+              "--dx": `${fmt(dir * (30 + dr() * 70) * shrink)}px`,
+              "--dy": `${fmt((dr() - 0.75) * 50 * shrink)}px`,
+              "animation-delay": at(q.hit + dr() * 0.08),
+              "animation-duration": sec(0.7 + dr() * 0.7),
+            }),
+          })}/>`,
+        );
+      }
+    }
     charsOut.push({ s: c.s, base, inner });
 
     // ---- Spores ----
@@ -374,6 +608,17 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
             }),
           })}>${markup}</g>`;
         }
+        if (blast) {
+          const dir = blast.direction === "left" ? 1 : -1;
+          markup = `<g${attrs({
+            class: `${p}-push`,
+            style: style({
+              "--px": `${fmt(dir * (8 + sr() * 16) * shrink)}px`,
+              "--py": `${fmt(-(sr() * 8) * shrink)}px`,
+              "animation-delay": at(q.hit),
+            }),
+          })}>${markup}</g>`;
+        }
         if (grow) {
           markup = `<g${attrs({
             class: `${p}-fade`,
@@ -392,6 +637,9 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       tip: anchorPt,
       rotation,
       growDelay: delay,
+      wilt: u,
+      blastHit: blast ? q.hit : undefined,
+      outline: glyphHull(q),
     });
   }
 
@@ -433,8 +681,37 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     })}/>`;
   }
 
+  // ---- Blast shock ring ----
+  let blastMarkup = "";
+  if (blast && blastOrigin) {
+    const color = blast.color ?? stemColor;
+    defs.push(
+      `<radialGradient id="${p}-shock">` +
+        `<stop offset="0" stop-color="${esc(color)}" stop-opacity="0"/>` +
+        `<stop offset=".72" stop-color="${esc(color)}" stop-opacity="0"/>` +
+        `<stop offset=".94" stop-color="${esc(color)}" stop-opacity=".35"/>` +
+        `<stop offset="1" stop-color="${esc(color)}" stop-opacity="0"/>` +
+        `</radialGradient>`,
+    );
+    const reach = blastReach * 1.15;
+    blastMarkup =
+      `<g${attrs({
+        class: `${p}-ring`,
+        style: style({
+          "--r": String(fmt(reach)),
+          "transform-origin": origin(blastOrigin),
+          "animation-delay": at(blast.at),
+          "animation-duration": sec(blast.duration * 1.15),
+        }),
+      })}>` +
+      `<circle${attrs({ cx: blastOrigin.x, cy: blastOrigin.y, r: 1, fill: `url(#${p}-shock)` })}/>` +
+      `<circle${attrs({ cx: blastOrigin.x, cy: blastOrigin.y, r: 1, fill: "none", stroke: color, "stroke-width": 1.5, "vector-effect": "non-scaling-stroke", opacity: 0.6 })}/>` +
+      `</g>` +
+      (debrisOut.length ? `<g class="${p}-debris-layer">${debrisOut.join("")}</g>` : "");
+  }
+
   const title = o.title === false ? null : (o.title ?? o.text);
-  const animated = Boolean(grow || sway);
+  const animated = Boolean(grow || sway || blast);
   const svg =
     `<svg${attrs({
       xmlns: "http://www.w3.org/2000/svg",
@@ -452,6 +729,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     pathMarkup +
     `<g class="${p}-chars">${charGroups.join("")}</g>` +
     (sporesOut.length ? `<g class="${p}-spores">${sporesOut.join("")}</g>` : "") +
+    blastMarkup +
     `</svg>`;
 
   return {

@@ -1,4 +1,12 @@
 import opentype from "opentype.js";
+import { type Point, convexHull, simplifyHull } from "./geometry.ts";
+
+const rectHull = (x1: number, y1: number, x2: number, y2: number): Point[] => [
+  { x: x1, y: y1 },
+  { x: x2, y: y1 },
+  { x: x2, y: y2 },
+  { x: x1, y: y2 },
+];
 
 /** How a glyph is drawn in the output SVG. */
 export type GlyphShape =
@@ -14,6 +22,8 @@ export interface GlyphInfo {
   bounds: { x1: number; y1: number; x2: number; y2: number } | null;
   /** The lowest point of the glyph's ink (largest y), if known. */
   inkBottom: { x: number; y: number } | null;
+  /** Convex hull of the glyph's ink, used to keep neighbouring glyphs from overlapping. */
+  hull: Point[] | null;
   shape: GlyphShape;
 }
 
@@ -80,10 +90,12 @@ export class GrowFont implements FontAdapter {
     const d = path.toPathData(2);
     const bb = path.getBoundingBox();
     const hasInk = path.commands.length > 0 && bb.x2 > bb.x1;
+    const outline = hasInk ? sampleOutline(path.commands) : [];
     const info: GlyphInfo = {
       advance: (g.advanceWidth ?? 0) * unit,
       bounds: hasInk ? { x1: bb.x1, y1: bb.y1, x2: bb.x2, y2: bb.y2 } : null,
-      inkBottom: hasInk ? lowestInk(path.commands, fontSize) : null,
+      inkBottom: hasInk ? lowestInk(outline, fontSize) : null,
+      hull: hasInk ? simplifyHull(convexHull(outline), 16) : null,
       shape: { kind: "path", d },
     };
     this.cache.set(key, info);
@@ -100,8 +112,8 @@ export class GrowFont implements FontAdapter {
 type Cmd = opentype.PathCommand;
 
 /** Find the lowest point of a glyph outline by sampling its curves. */
-function lowestInk(commands: Cmd[], fontSize: number): { x: number; y: number } {
-  const samples: Array<{ x: number; y: number }> = [];
+function sampleOutline(commands: Cmd[]): Point[] {
+  const samples: Point[] = [];
   let cx = 0;
   let cy = 0;
   for (const c of commands) {
@@ -131,6 +143,11 @@ function lowestInk(commands: Cmd[], fontSize: number): { x: number; y: number } 
       cy = c.y;
     }
   }
+  return samples;
+}
+
+/** The lowest point of a glyph outline (from sampled outline points). */
+function lowestInk(samples: Point[], fontSize: number): Point {
   let maxY = -Infinity;
   for (const s of samples) maxY = Math.max(maxY, s.y);
   // Average x over the points that sit near the bottom, so flat feet attach in their middle.
@@ -241,6 +258,7 @@ export class CssFontAdapter implements FontAdapter {
         advance: m.width,
         bounds: hasInk ? { x1, y1, x2, y2 } : null,
         inkBottom: hasInk ? { x: (x1 + x2) / 2, y: y2 } : null,
+        hull: hasInk ? rectHull(x1, y1, x2, y2) : null,
         shape: { kind: "text", char, attrs: this.textAttributes(fontSize) },
       };
     } else {
@@ -251,6 +269,7 @@ export class CssFontAdapter implements FontAdapter {
         advance: w,
         bounds: { x1: 0, y1: -h, x2: w, y2: 0 },
         inkBottom: { x: w / 2, y: 0 },
+        hull: rectHull(0, -h, w, 0),
         shape: { kind: "text", char, attrs: this.textAttributes(fontSize) },
       };
     }

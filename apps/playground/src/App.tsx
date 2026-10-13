@@ -26,7 +26,11 @@ interface Settings {
   fontSize: number;
   letterSpacing: number;
   layout: "natural" | "fill";
-  justify: "left" | "center" | "right";
+  justify: "start" | "center" | "end";
+  avoidOverlap: boolean;
+  blastOnWilt: boolean;
+  blastFrom: "left" | "right";
+  blastStrength: number;
   inset: number;
   side: "left" | "right";
   anchor: "baseline" | "ink";
@@ -76,6 +80,10 @@ const INITIAL: Settings = {
   letterSpacing: 6,
   layout: "natural",
   justify: "center",
+  avoidOverlap: true,
+  blastOnWilt: true,
+  blastFrom: "left",
+  blastStrength: 22,
   inset: 20,
   side: "left",
   anchor: "baseline",
@@ -196,7 +204,38 @@ export function App() {
   const epoch = useRef(performance.now());
   const [replayKey, setReplayKey] = useState(0);
 
-  const wilt = useTween(WILT_STAGES.indexOf(s.wilt));
+  const wiltTarget = WILT_STAGES.indexOf(s.wilt);
+  const tweened = useTween(wiltTarget);
+  const timeline = () => (performance.now() - epoch.current) / 1000;
+
+  // Blast wave: when the wilt stage changes, sweep a shock front across the text and re-render
+  // every frame while it plays so each sprout wilts as the front reaches it.
+  const BLAST_DURATION = 1.1;
+  const BLAST_RECOIL = 1.6;
+  const [blast, setBlast] = useState<{ at: number; fromWilt: number } | null>(null);
+  const [frame, setFrame] = useState(0);
+  const prevWilt = useRef(wiltTarget);
+  const fireBlast = useCallback((fromWilt: number) => {
+    const at = timeline() + 0.05;
+    setBlast({ at, fromWilt });
+    const end = at + BLAST_DURATION + BLAST_RECOIL + 0.3;
+    const tick = () => {
+      if (timeline() > end) {
+        setBlast(null);
+        return;
+      }
+      setFrame((f) => f + 1);
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, []);
+  useEffect(() => {
+    if (prevWilt.current === wiltTarget) return;
+    const from = prevWilt.current;
+    prevWilt.current = wiltTarget;
+    if (s.blastOnWilt) fireBlast(from);
+  }, [wiltTarget, s.blastOnWilt, fireBlast]);
+  const wilt = s.blastOnWilt ? wiltTarget : tweened;
 
   const pathData = useMemo(() => {
     if (s.path.kind === "custom") return s.path.d;
@@ -227,6 +266,7 @@ export function App() {
       side: s.side,
       anchor: s.anchor,
       compensateCurvature: s.compensateCurvature,
+      avoidOverlap: s.avoidOverlap,
       stemLength: s.stemLength,
       stemLengthVariance: s.stemLengthVariance,
       stemThickness: s.stemThickness,
@@ -251,13 +291,24 @@ export function App() {
       showPath: s.showPath && { color: s.pathColor, width: s.pathWidth },
       spores: s.spores && { count: s.sporeCount, size: s.sporeSize },
       background: s.transparent ? undefined : s.background,
+      blast: blast
+        ? {
+            direction: s.blastFrom,
+            at: blast.at,
+            duration: BLAST_DURATION,
+            recoil: BLAST_RECOIL,
+            strength: s.blastStrength,
+            fromWilt: blast.fromWilt,
+          }
+        : undefined,
     };
-  }, [s, font, pathData, wilt]);
+  }, [s, font, pathData, wilt, blast]);
 
   const result = useMemo(() => {
     if (!options) return null;
     try {
       void replayKey;
+      void frame;
       const timeOffset = (performance.now() - epoch.current) / 1000;
       return { ...growtype({ ...options, timeOffset }), error: null };
     } catch (e) {
@@ -270,10 +321,13 @@ export function App() {
         pathLength: 0,
       };
     }
-  }, [options, replayKey]);
+  }, [options, replayKey, frame]);
 
-  // The exported SVG always starts its timeline from zero.
-  const exportSvg = useCallback(() => (options ? growtype(options).svg : ""), [options]);
+  // The exported SVG always starts its timeline from zero, without the transient blast.
+  const exportSvg = useCallback(
+    () => (options ? growtype({ ...options, blast: undefined }).svg : ""),
+    [options],
+  );
 
   const replay = () => {
     epoch.current = performance.now();
@@ -424,9 +478,10 @@ export function App() {
           />
           {s.layout === "natural" && (
             <Segmented
-              label="Justify"
+              label="Align"
               value={s.justify}
-              options={["left", "center", "right"] as const}
+              options={["start", "center", "end"] as const}
+              labels={{ start: "Path start", center: "Center", end: "Path end" }}
               onChange={(v) => set("justify", v)}
             />
           )}
@@ -443,6 +498,11 @@ export function App() {
             options={["left", "right"] as const}
             labels={{ left: "Left of path", right: "Right of path" }}
             onChange={(v) => set("side", v)}
+          />
+          <Toggle
+            label="Avoid overlaps"
+            checked={s.avoidOverlap}
+            onChange={(v) => set("avoidOverlap", v)}
           />
           <Toggle
             label="Even out curves"
@@ -548,6 +608,30 @@ export function App() {
             labels={WILT_LABELS}
             onChange={(v) => set("wilt", v)}
           />
+          <Toggle
+            label="Blast on change"
+            checked={s.blastOnWilt}
+            onChange={(v) => set("blastOnWilt", v)}
+          />
+          {s.blastOnWilt && (
+            <>
+              <Segmented
+                label="Blast from"
+                value={s.blastFrom}
+                options={["left", "right"] as const}
+                labels={{ left: "Left", right: "Right" }}
+                onChange={(v) => set("blastFrom", v)}
+              />
+              <Slider
+                label="Blast force"
+                value={s.blastStrength}
+                min={0}
+                max={60}
+                unit="°"
+                onChange={(v) => set("blastStrength", v)}
+              />
+            </>
+          )}
           <div className="row">
             <span className="row-label">Seed</span>
             <input
@@ -692,6 +776,9 @@ export function App() {
           <button type="button" onClick={replay}>
             ↻ Replay
           </button>
+          <button type="button" onClick={() => fireBlast(wiltTarget)}>
+            💥 Blast
+          </button>
           <button type="button" onClick={download} disabled={!result?.svg}>
             ⤓ Download SVG
           </button>
@@ -828,6 +915,7 @@ function Snippet({ settings: s, pathData }: { settings: Settings; pathData: stri
     side: s.side,
     anchor: s.anchor,
     compensateCurvature: s.compensateCurvature,
+    avoidOverlap: s.avoidOverlap,
     stemLength: s.stemLength,
     stemLengthVariance: s.stemLengthVariance,
     stemThickness: s.stemThickness,

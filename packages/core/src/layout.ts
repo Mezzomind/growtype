@@ -110,7 +110,7 @@ export function layoutText(p: LayoutParams): LayoutResult {
     }
     const justify = p.mode === "fill" ? "center" : p.justify;
     const slack = available - width;
-    start = p.inset + (justify === "left" ? 0 : justify === "center" ? slack / 2 : slack);
+    start = p.inset + (justify === "start" ? 0 : justify === "center" ? slack / 2 : slack);
   }
 
   const out: LaidOutChar[] = [];

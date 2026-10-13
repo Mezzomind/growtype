@@ -1,7 +1,7 @@
 import type { CssFont, FontInput } from "./font.ts";
 import type { PathInput } from "./path.ts";
 
-export type Justify = "left" | "center" | "right";
+export type Justify = "start" | "center" | "end";
 export type LayoutMode = "natural" | "fill";
 export type AnchorMode = "baseline" | "ink";
 export type WiltStage = "full" | "slightly-damaged" | "damaged" | "wilted";
@@ -36,6 +36,28 @@ export interface SwayOptions {
   period?: number;
   /** Add a coherent gust of wind travelling along the path. Default false. */
   wave?: boolean | WaveOptions;
+}
+
+export interface BlastOptions {
+  /** Which side of the text the shock wave comes from. Default `left`. */
+  direction?: "left" | "right";
+  /** Seconds on the animation timeline when the blast starts. Default 0. */
+  at?: number;
+  /** Seconds for the front to sweep across the whole text. Default 1.1. */
+  duration?: number;
+  /** How far sprouts are knocked over, in degrees. Default 22. */
+  strength?: number;
+  /** Seconds for a sprout to recoil and settle after being hit. Default 1.6. */
+  recoil?: number;
+  /** Debris particles thrown off each sprout. Default 3. */
+  debris?: number;
+  /** Colour of the shock ring and debris. Defaults to the stem colour. */
+  color?: string;
+  /**
+   * The wilt stage before the blast. Each sprout shows this until the front reaches it, then
+   * changes to `wilt`. Evaluated at `timeOffset`, so re-render while the blast plays to see it sweep.
+   */
+  fromWilt?: WiltStage | number;
 }
 
 export interface SporeOptions {
@@ -86,7 +108,11 @@ export interface GrowtypeOptions {
   letterSpacing?: number;
   /** `natural` packs characters; `fill` spreads them across the whole path. Default `natural`. */
   layout?: LayoutMode;
-  /** Alignment along the path in natural layout. Default `left`. */
+  /**
+   * Where the text sits along the path in natural layout. `start` lays the first character at the
+   * start of the path and continues forwards; `end` puts the last character at the end of the path
+   * and works backwards to the first; `center` centres it. Default `start`.
+   */
   justify?: Justify;
   /** Distance kept clear at both ends of the path. Default 0. */
   inset?: number;
@@ -137,6 +163,13 @@ export interface GrowtypeOptions {
   grow?: boolean | GrowOptions;
   /** Idle sway animation. Default false. */
   sway?: boolean | SwayOptions;
+  /**
+   * A shock wave sweeping across from the left or right, knocking the sprouts over as it passes.
+   * Use it when the wilt stage changes (`fromWilt` → `wilt`). Default none.
+   */
+  blast?: BlastOptions;
+  /** Nudge leans, heights and twists so glyphs don't overlap their neighbours. Default true. */
+  avoidOverlap?: boolean;
 
   /** Glyph colour. Default `#24301a`. */
   glyphColor?: string;
@@ -173,7 +206,7 @@ export const DEFAULTS = {
   emojiScale: 0.9,
   letterSpacing: 0,
   layout: "natural" as LayoutMode,
-  justify: "left" as Justify,
+  justify: "start" as Justify,
   inset: 0,
   side: "left" as "left" | "right",
   anchor: "baseline" as AnchorMode,
@@ -199,6 +232,16 @@ export const DEFAULTS = {
   } as Required<GrowOptions>,
   sway: { amplitude: 3, period: 3.2 },
   wave: { amplitude: 6, travel: 2.5, period: 5 } as Required<WaveOptions>,
+  avoidOverlap: true,
+  blast: {
+    direction: "left",
+    at: 0,
+    duration: 1.1,
+    strength: 22,
+    recoil: 1.6,
+    debris: 3,
+  } as Required<Omit<BlastOptions, "fromWilt" | "color">> &
+    Pick<BlastOptions, "fromWilt" | "color">,
   spores: { count: 2.5, size: 1.4, spread: 0.9 },
   path: { width: 2, opacity: 1 },
 };
