@@ -1,0 +1,259 @@
+import opentype from "opentype.js";
+
+/** How a glyph is drawn in the output SVG. */
+export type GlyphShape = { kind: "path"; d: string } | { kind: "text"; char: string };
+
+/** Glyph metrics in output units (y down, baseline at 0, origin at the pen position). */
+export interface GlyphInfo {
+  /** Horizontal advance, without kerning. */
+  advance: number;
+  /** Ink bounds, if known. */
+  bounds: { x1: number; y1: number; x2: number; y2: number } | null;
+  /** The lowest point of the glyph's ink (largest y), if known. */
+  inkBottom: { x: number; y: number } | null;
+  shape: GlyphShape;
+}
+
+/** Abstraction over font sources: parsed font files and CSS font families. */
+export interface FontAdapter {
+  readonly kind: "path" | "text";
+  glyph(char: string, fontSize: number): GlyphInfo;
+  kerning(left: string, right: string, fontSize: number): number;
+  /** Attributes to put on a `<text>` element (text mode only). */
+  textAttributes?(fontSize: number): Record<string, string>;
+}
+
+/** A CSS font, rendered with `<text>` elements. The font must be available where the SVG is shown. */
+export interface CssFont {
+  family: string;
+  weight?: string | number;
+  style?: string;
+}
+
+/** A parsed font file whose glyph outlines are embedded as `<path>` elements. */
+export class GrowFont implements FontAdapter {
+  readonly kind = "path" as const;
+  readonly font: opentype.Font;
+  private readonly cache = new Map<string, GlyphInfo>();
+
+  constructor(font: opentype.Font) {
+    this.font = font;
+  }
+
+  get familyName(): string {
+    return this.font.names.fontFamily?.en ?? "font";
+  }
+
+  glyph(char: string, fontSize: number): GlyphInfo {
+    const key = `${fontSize}|${char}`;
+    const hit = this.cache.get(key);
+    if (hit) return hit;
+    const g = this.font.charToGlyph(char);
+    const unit = fontSize / this.font.unitsPerEm;
+    const path = g.getPath(0, 0, fontSize);
+    const d = path.toPathData(2);
+    const bb = path.getBoundingBox();
+    const hasInk = path.commands.length > 0 && bb.x2 > bb.x1;
+    const info: GlyphInfo = {
+      advance: (g.advanceWidth ?? 0) * unit,
+      bounds: hasInk ? { x1: bb.x1, y1: bb.y1, x2: bb.x2, y2: bb.y2 } : null,
+      inkBottom: hasInk ? lowestInk(path.commands, fontSize) : null,
+      shape: { kind: "path", d },
+    };
+    this.cache.set(key, info);
+    return info;
+  }
+
+  kerning(left: string, right: string, fontSize: number): number {
+    const a = this.font.charToGlyph(left);
+    const b = this.font.charToGlyph(right);
+    return (this.font.getKerningValue(a, b) * fontSize) / this.font.unitsPerEm;
+  }
+}
+
+type Cmd = opentype.PathCommand;
+
+/** Find the lowest point of a glyph outline by sampling its curves. */
+function lowestInk(commands: Cmd[], fontSize: number): { x: number; y: number } {
+  const samples: Array<{ x: number; y: number }> = [];
+  let cx = 0;
+  let cy = 0;
+  for (const c of commands) {
+    if (c.type === "M" || c.type === "L") {
+      samples.push({ x: c.x, y: c.y });
+      cx = c.x;
+      cy = c.y;
+    } else if (c.type === "Q") {
+      for (let t = 0.125; t <= 1; t += 0.125) {
+        const mt = 1 - t;
+        samples.push({
+          x: mt * mt * cx + 2 * mt * t * c.x1 + t * t * c.x,
+          y: mt * mt * cy + 2 * mt * t * c.y1 + t * t * c.y,
+        });
+      }
+      cx = c.x;
+      cy = c.y;
+    } else if (c.type === "C") {
+      for (let t = 0.125; t <= 1; t += 0.125) {
+        const mt = 1 - t;
+        samples.push({
+          x: mt * mt * mt * cx + 3 * mt * mt * t * c.x1 + 3 * mt * t * t * c.x2 + t * t * t * c.x,
+          y: mt * mt * mt * cy + 3 * mt * mt * t * c.y1 + 3 * mt * t * t * c.y2 + t * t * t * c.y,
+        });
+      }
+      cx = c.x;
+      cy = c.y;
+    }
+  }
+  let maxY = -Infinity;
+  for (const s of samples) maxY = Math.max(maxY, s.y);
+  // Average x over the points that sit near the bottom, so flat feet attach in their middle.
+  const tol = fontSize * 0.02;
+  let sx = 0;
+  let n = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const s of samples) {
+    if (s.y >= maxY - tol) {
+      minX = Math.min(minX, s.x);
+      maxX = Math.max(maxX, s.x);
+      sx += s.x;
+      n++;
+    }
+  }
+  // For a wide flat bottom (e.g. serifs on two feet) use the centre of the bottom span.
+  const x = maxX - minX > fontSize * 0.25 ? (minX + maxX) / 2 : sx / n;
+  return { x, y: maxY };
+}
+
+/** Parse a font file (TTF / OTF / WOFF) from bytes. */
+export function parseFont(data: ArrayBuffer | Uint8Array): GrowFont {
+  const buffer =
+    data instanceof Uint8Array
+      ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
+      : data;
+  return new GrowFont(opentype.parse(buffer as ArrayBuffer));
+}
+
+/** Load a font file from a URL, or parse it from bytes. */
+export async function loadFont(source: string | URL | ArrayBuffer | Uint8Array): Promise<GrowFont> {
+  if (typeof source === "string" || source instanceof URL) {
+    const res = await fetch(source);
+    if (!res.ok) throw new Error(`growtype: failed to load font ${String(source)} (${res.status})`);
+    return parseFont(await res.arrayBuffer());
+  }
+  return parseFont(source);
+}
+
+type Ctx2D = Pick<CanvasRenderingContext2D, "font" | "measureText">;
+
+let sharedCtx: Ctx2D | null | undefined;
+function getContext(): Ctx2D | null {
+  if (sharedCtx !== undefined) return sharedCtx;
+  sharedCtx = null;
+  try {
+    if (typeof OffscreenCanvas !== "undefined") {
+      sharedCtx = new OffscreenCanvas(1, 1).getContext("2d") as Ctx2D | null;
+    } else if (typeof document !== "undefined") {
+      sharedCtx = document.createElement("canvas").getContext("2d");
+    }
+  } catch {
+    sharedCtx = null;
+  }
+  return sharedCtx;
+}
+
+function cssFamily(family: string): string {
+  // Leave generic families and already-quoted / comma lists alone.
+  if (
+    /[,'"]/.test(family) ||
+    /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/.test(family)
+  ) {
+    return family;
+  }
+  return `"${family}"`;
+}
+
+/**
+ * A CSS font family, measured with a canvas. Glyphs are emitted as `<text>`,
+ * so ink positions are approximate and the font must be loaded where the SVG is displayed.
+ */
+export class CssFontAdapter implements FontAdapter {
+  readonly kind = "text" as const;
+  readonly spec: Required<CssFont>;
+  private readonly cache = new Map<string, GlyphInfo>();
+
+  constructor(spec: CssFont | string) {
+    const s = typeof spec === "string" ? { family: spec } : spec;
+    this.spec = { family: s.family, weight: s.weight ?? "normal", style: s.style ?? "normal" };
+  }
+
+  private fontString(fontSize: number): string {
+    return `${this.spec.style} ${this.spec.weight} ${fontSize}px ${cssFamily(this.spec.family)}`;
+  }
+
+  private measure(text: string, fontSize: number) {
+    const ctx = getContext();
+    if (!ctx) return null;
+    ctx.font = this.fontString(fontSize);
+    return ctx.measureText(text);
+  }
+
+  glyph(char: string, fontSize: number): GlyphInfo {
+    const key = `${fontSize}|${char}`;
+    const hit = this.cache.get(key);
+    if (hit) return hit;
+    const m = this.measure(char, fontSize);
+    let info: GlyphInfo;
+    if (m) {
+      const x1 = -(m.actualBoundingBoxLeft ?? 0);
+      const x2 = m.actualBoundingBoxRight ?? m.width;
+      const y1 = -(m.actualBoundingBoxAscent ?? fontSize * 0.7);
+      const y2 = m.actualBoundingBoxDescent ?? 0;
+      const hasInk = x2 > x1 && y2 > y1;
+      info = {
+        advance: m.width,
+        bounds: hasInk ? { x1, y1, x2, y2 } : null,
+        inkBottom: hasInk ? { x: (x1 + x2) / 2, y: y2 } : null,
+        shape: { kind: "text", char },
+      };
+    } else {
+      // No canvas available: rough estimates.
+      info = {
+        advance: fontSize * 0.55,
+        bounds: { x1: 0, y1: -fontSize * 0.7, x2: fontSize * 0.55, y2: 0 },
+        inkBottom: { x: fontSize * 0.275, y: 0 },
+        shape: { kind: "text", char },
+      };
+    }
+    this.cache.set(key, info);
+    return info;
+  }
+
+  kerning(left: string, right: string, fontSize: number): number {
+    const pair = this.measure(left + right, fontSize);
+    if (!pair) return 0;
+    const a = this.glyph(left, fontSize).advance;
+    const b = this.glyph(right, fontSize).advance;
+    const k = pair.width - a - b;
+    return Math.abs(k) < 0.01 ? 0 : k;
+  }
+
+  textAttributes(fontSize: number): Record<string, string> {
+    const attrs: Record<string, string> = {
+      "font-family": this.spec.family,
+      "font-size": String(fontSize),
+    };
+    if (String(this.spec.weight) !== "normal") attrs["font-weight"] = String(this.spec.weight);
+    if (this.spec.style !== "normal") attrs["font-style"] = this.spec.style;
+    return attrs;
+  }
+}
+
+export type FontInput = GrowFont | FontAdapter | CssFont | string;
+
+export function toFontAdapter(font: FontInput): FontAdapter {
+  if (typeof font === "string") return new CssFontAdapter(font);
+  if ("glyph" in font && typeof font.glyph === "function") return font;
+  return new CssFontAdapter(font as CssFont);
+}
