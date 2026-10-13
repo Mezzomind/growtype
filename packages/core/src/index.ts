@@ -13,7 +13,16 @@ export type {
   WiltStage,
 } from "./options.ts";
 export { WILT_STAGES } from "./options.ts";
-export { loadFont, parseFont, GrowFont, CssFontAdapter } from "./font.ts";
+export {
+  loadFont,
+  parseFont,
+  GrowFont,
+  CssFontAdapter,
+  FallbackFontAdapter,
+  EMOJI_FONT_FAMILY,
+  isEmoji,
+} from "./font.ts";
+export { splitGraphemes } from "./layout.ts";
 export type { FontAdapter, FontInput, CssFont, GlyphInfo, GlyphShape } from "./font.ts";
 export { PathSampler, pathInputToData } from "./path.ts";
 export type { PathInput } from "./path.ts";

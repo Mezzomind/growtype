@@ -1,4 +1,4 @@
-import type { FontInput } from "./font.ts";
+import type { CssFont, FontInput } from "./font.ts";
 import type { PathInput } from "./path.ts";
 
 export type Justify = "left" | "center" | "right";
@@ -56,13 +56,23 @@ export interface PathStyle {
 }
 
 export interface GrowtypeOptions {
-  /** The text to grow. */
+  /**
+   * The text to grow. Emoji may appear anywhere: they are kept whole (ZWJ sequences, flags,
+   * skin tones, keycaps) and drawn with a colour emoji font when the main font lacks them.
+   */
   text: string;
   /**
    * A parsed font file (`await loadFont(url)`) to embed glyphs as paths,
    * or a CSS font family / `{ family, weight, style }` to emit `<text>`.
    */
   font: FontInput;
+  /**
+   * Font for emoji and for any character the main font file can't draw. Rendered as `<text>`.
+   * Default: the system colour emoji fonts (Apple / Segoe UI / Noto Color Emoji).
+   */
+  emojiFont?: CssFont | string;
+  /** Size of emoji relative to `fontSize`. Default 0.9. */
+  emojiScale?: number;
   /** SVG path data, or a list of points that is smoothed into a curve. */
   path: PathInput;
   /** SVG width (and viewBox width). Path coordinates are in this space. */
@@ -160,6 +170,7 @@ export function wiltIndex(w: GrowtypeOptions["wilt"]): number {
 
 export const DEFAULTS = {
   fontSize: 48,
+  emojiScale: 0.9,
   letterSpacing: 0,
   layout: "natural" as LayoutMode,
   justify: "left" as Justify,

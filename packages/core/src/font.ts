@@ -1,7 +1,10 @@
 import opentype from "opentype.js";
 
 /** How a glyph is drawn in the output SVG. */
-export type GlyphShape = { kind: "path"; d: string } | { kind: "text"; char: string };
+export type GlyphShape =
+  | { kind: "path"; d: string }
+  /** Text glyphs carry the font attributes to put on their `<text>` element. */
+  | { kind: "text"; char: string; attrs: Record<string, string> };
 
 /** Glyph metrics in output units (y down, baseline at 0, origin at the pen position). */
 export interface GlyphInfo {
@@ -19,8 +22,24 @@ export interface FontAdapter {
   readonly kind: "path" | "text";
   glyph(char: string, fontSize: number): GlyphInfo;
   kerning(left: string, right: string, fontSize: number): number;
-  /** Attributes to put on a `<text>` element (text mode only). */
-  textAttributes?(fontSize: number): Record<string, string>;
+  /** Whether the font can draw this character itself (defaults to true). */
+  hasGlyph?(char: string): boolean;
+}
+
+/** Colour emoji fonts, tried in order. */
+export const EMOJI_FONT_FAMILY =
+  '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", "Segoe UI Symbol", sans-serif';
+
+/**
+ * Whether a character (grapheme cluster) should be drawn as a colour emoji: anything with emoji
+ * presentation, flags, keycaps, skin-tone and ZWJ sequences, or an explicit emoji variation
+ * selector. Symbols like © or ™ that default to text presentation are left to the main font.
+ */
+export function isEmoji(char: string): boolean {
+  if (char.includes("\uFE0E")) return false;
+  return /\p{Emoji_Presentation}|\p{Regional_Indicator}|\p{Emoji_Modifier}|\uFE0F|\u20E3|\u200D/u.test(
+    char,
+  );
 }
 
 /** A CSS font, rendered with `<text>` elements. The font must be available where the SVG is shown. */
@@ -38,6 +57,13 @@ export class GrowFont implements FontAdapter {
 
   constructor(font: opentype.Font) {
     this.font = font;
+  }
+
+  hasGlyph(char: string): boolean {
+    const cps = Array.from(char);
+    // Multi-code-point clusters (combining marks aside) need shaping opentype.js doesn't do.
+    if (cps.length !== 1 && !cps.slice(1).every((c) => /\p{M}/u.test(c))) return false;
+    return this.font.charToGlyphIndex(cps[0]!) > 0;
   }
 
   get familyName(): string {
@@ -215,15 +241,17 @@ export class CssFontAdapter implements FontAdapter {
         advance: m.width,
         bounds: hasInk ? { x1, y1, x2, y2 } : null,
         inkBottom: hasInk ? { x: (x1 + x2) / 2, y: y2 } : null,
-        shape: { kind: "text", char },
+        shape: { kind: "text", char, attrs: this.textAttributes(fontSize) },
       };
     } else {
-      // No canvas available: rough estimates.
+      // No canvas available: rough estimates (emoji are roughly square, about 1em wide).
+      const w = fontSize * (isEmoji(char) ? 1.1 : 0.55);
+      const h = fontSize * (isEmoji(char) ? 0.9 : 0.7);
       info = {
-        advance: fontSize * 0.55,
-        bounds: { x1: 0, y1: -fontSize * 0.7, x2: fontSize * 0.55, y2: 0 },
-        inkBottom: { x: fontSize * 0.275, y: 0 },
-        shape: { kind: "text", char },
+        advance: w,
+        bounds: { x1: 0, y1: -h, x2: w, y2: 0 },
+        inkBottom: { x: w / 2, y: 0 },
+        shape: { kind: "text", char, attrs: this.textAttributes(fontSize) },
       };
     }
     this.cache.set(key, info);
@@ -252,8 +280,50 @@ export class CssFontAdapter implements FontAdapter {
 
 export type FontInput = GrowFont | FontAdapter | CssFont | string;
 
-export function toFontAdapter(font: FontInput): FontAdapter {
-  if (typeof font === "string") return new CssFontAdapter(font);
-  if ("glyph" in font && typeof font.glyph === "function") return font;
-  return new CssFontAdapter(font as CssFont);
+/**
+ * Routes emoji – and any character the primary font can't draw – to a fallback font
+ * (by default the system colour emoji fonts), so they can appear anywhere in the text.
+ */
+export class FallbackFontAdapter implements FontAdapter {
+  readonly kind: "path" | "text";
+
+  constructor(
+    readonly primary: FontAdapter,
+    readonly fallback: FontAdapter,
+    /** Size of fallback glyphs relative to the font size. */
+    readonly scale = 1,
+  ) {
+    this.kind = primary.kind;
+  }
+
+  private usesFallback(char: string): boolean {
+    if (/^\s$/u.test(char)) return false;
+    return isEmoji(char) || !(this.primary.hasGlyph?.(char) ?? true);
+  }
+
+  glyph(char: string, fontSize: number): GlyphInfo {
+    return this.usesFallback(char)
+      ? this.fallback.glyph(char, fontSize * this.scale)
+      : this.primary.glyph(char, fontSize);
+  }
+
+  kerning(left: string, right: string, fontSize: number): number {
+    if (this.usesFallback(left) || this.usesFallback(right)) return 0;
+    return this.primary.kerning(left, right, fontSize);
+  }
+}
+
+export function toFontAdapter(
+  font: FontInput,
+  fallback: CssFont | string = EMOJI_FONT_FAMILY,
+  emojiScale = 1,
+): FontAdapter {
+  const primary =
+    typeof font === "string"
+      ? new CssFontAdapter(font)
+      : "glyph" in font && typeof font.glyph === "function"
+        ? font
+        : new CssFontAdapter(font as CssFont);
+  if (primary instanceof FallbackFontAdapter) return primary;
+  return new FallbackFontAdapter(primary, new CssFontAdapter(fallback), emojiScale);
 }

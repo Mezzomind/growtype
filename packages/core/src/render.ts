@@ -95,7 +95,7 @@ function css(p: string): string {
 /** Render text growing out of a path. Returns the SVG and layout details. */
 export function growtype(options: GrowtypeOptions): GrowtypeResult {
   const o = options;
-  const font = toFontAdapter(o.font);
+  const font = toFontAdapter(o.font, o.emojiFont, o.emojiScale ?? DEFAULTS.emojiScale);
   const sampler = new PathSampler(o.path);
   const rng = new Random(o.seed);
 
@@ -310,8 +310,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     if (g.shape.kind === "path") {
       glyphMarkup = `<path${attrs({ d: g.shape.d, fill: color, transform })}/>`;
     } else {
-      const ta = font.textAttributes?.(fontSize) ?? {};
-      glyphMarkup = `<text${attrs({ ...ta, x: 0, y: 0, fill: color, transform })}>${esc(g.shape.char)}</text>`;
+      glyphMarkup = `<text${attrs({ ...g.shape.attrs, x: 0, y: 0, fill: color, transform })}>${esc(g.shape.char)}</text>`;
     }
     const popStyle = grow
       ? style({

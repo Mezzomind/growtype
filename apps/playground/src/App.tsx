@@ -67,7 +67,7 @@ interface Settings {
 }
 
 const INITIAL: Settings = {
-  text: "spores of thought",
+  text: "🍄 spores of 🧠 thought ✨",
   fontChoice: FONT_CHOICES[0]!.label,
   width: 900,
   height: 420,

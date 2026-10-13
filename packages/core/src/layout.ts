@@ -46,9 +46,37 @@ function measure(chars: string[], font: FontAdapter, fontSize: number) {
 
 export const isSpace = (c: string): boolean => /^\s$/u.test(c);
 
+/**
+ * Split text into user-perceived characters (grapheme clusters), so emoji sequences such as
+ * 👨‍👩‍👧, 🇯🇵, 👍🏽 and 1️⃣ – and letters with combining accents – stay whole.
+ */
+export function splitGraphemes(text: string): string[] {
+  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+    const seg = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    return Array.from(seg.segment(text), (s) => s.segment);
+  }
+  // Fallback: glue modifiers, variation selectors, keycaps, ZWJ links and flag pairs onto the
+  // preceding code point.
+  const out: string[] = [];
+  let joinNext = false;
+  for (const cp of Array.from(text)) {
+    const prev = out[out.length - 1];
+    const extends_ =
+      /[\p{M}\p{Emoji_Modifier}\uFE0E\uFE0F\u20E3\u200D]|[\u{E0020}-\u{E007F}]/u.test(cp);
+    const flagPair =
+      prev !== undefined &&
+      /^\p{Regional_Indicator}$/u.test(prev) &&
+      /\p{Regional_Indicator}/u.test(cp);
+    if (prev !== undefined && (joinNext || extends_ || flagPair)) out[out.length - 1] = prev + cp;
+    else out.push(cp);
+    joinNext = cp === "\u200D";
+  }
+  return out;
+}
+
 /** Place characters along a path by arc length. */
 export function layoutText(p: LayoutParams): LayoutResult {
-  const chars = Array.from(p.text.replace(/[\r\n\t]+/g, " "));
+  const chars = splitGraphemes(p.text.replace(/[\r\n\t]+/g, " "));
   const available = Math.max(0, p.pathLength - 2 * p.inset);
   if (chars.length === 0 || available === 0) {
     return { chars: [], fontSize: p.fontSize, start: p.inset, end: p.inset };
