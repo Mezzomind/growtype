@@ -81,9 +81,11 @@ export interface FontChoice {
 }
 
 export const FONT_CHOICES: FontChoice[] = [
+  { label: "Freckle Face (paths)", file: "fonts/FreckleFace-Regular.ttf" },
   { label: "Young Serif (paths)", file: "fonts/YoungSerif-Regular.ttf" },
   { label: "Gloock (paths)", file: "fonts/Gloock-Regular.ttf" },
   { label: "Sniglet (paths)", file: "fonts/Sniglet-Regular.ttf" },
+  { label: "Freckle Face (CSS text)", css: "Freckle Face" },
   { label: "Young Serif (CSS text)", css: "Young Serif" },
   { label: "Georgia (CSS text)", css: "Georgia" },
   { label: "system-ui (CSS text)", css: "system-ui" },

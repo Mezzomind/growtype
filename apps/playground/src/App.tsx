@@ -37,6 +37,7 @@ interface Settings {
   flare: number;
   wobble: number;
   rhizoids: number;
+  stemVariance: number;
   tiltMin: number;
   tiltMax: number;
   tiltCoherence: number;
@@ -85,6 +86,7 @@ const INITIAL: Settings = {
   flare: 3,
   wobble: 0.6,
   rhizoids: 3,
+  stemVariance: 0.7,
   tiltMin: -12,
   tiltMax: 12,
   tiltCoherence: 0.7,
@@ -136,7 +138,10 @@ function useFonts() {
         .catch((e: unknown) => alive && setError(String(e)));
     }
     // CSS-mode fonts are measured with a canvas, so wait until web fonts are usable.
-    void document.fonts.load('48px "Young Serif"').then(() => alive && setCssReady((n) => n + 1));
+    void Promise.all([
+      document.fonts.load('48px "Freckle Face"'),
+      document.fonts.load('48px "Young Serif"'),
+    ]).then(() => alive && setCssReady((n) => n + 1));
     return () => {
       alive = false;
     };
@@ -228,6 +233,7 @@ export function App() {
       flare: s.flare,
       wobble: s.wobble,
       rhizoids: s.rhizoids,
+      stemVariance: s.stemVariance,
       tilt: [Math.min(s.tiltMin, s.tiltMax), Math.max(s.tiltMin, s.tiltMax)],
       tiltCoherence: s.tiltCoherence,
       twist: s.twist,
@@ -491,6 +497,14 @@ export function App() {
             min={0}
             max={8}
             onChange={(v) => set("rhizoids", v)}
+          />
+          <Slider
+            label="Variation"
+            value={s.stemVariance}
+            min={0}
+            max={1.5}
+            step={0.01}
+            onChange={(v) => set("stemVariance", v)}
           />
         </Section>
 
@@ -820,6 +834,7 @@ function Snippet({ settings: s, pathData }: { settings: Settings; pathData: stri
     flare: s.flare,
     wobble: s.wobble,
     rhizoids: s.rhizoids,
+    stemVariance: s.stemVariance,
     tilt: [Math.min(s.tiltMin, s.tiltMax), Math.max(s.tiltMin, s.tiltMax)],
     tiltCoherence: s.tiltCoherence,
     twist: s.twist,

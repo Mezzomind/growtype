@@ -57,6 +57,18 @@ describe("growtype", () => {
     expect(spread(on)).toBeGreaterThan(0.85);
   });
 
+  test("stemVariance adds per-stalk personality", () => {
+    const text = "variation is good for mould";
+    const flat = renderGrowtype({ ...opts, text, stemVariance: 0 });
+    const varied = renderGrowtype({ ...opts, text, stemVariance: 1.2 });
+    // No variance: single-outline stalks with uniform tone.
+    expect(flat).not.toMatch(/-stem" opacity/);
+    expect(flat).not.toMatch(/<g class="[a-z0-9]+-stem"/);
+    // High variance: tone shifts and at least one branched stalk (a group of shapes).
+    expect(varied).toMatch(/-stem" [^>]*opacity="0\.\d+"/);
+    expect(varied).toMatch(/<g class="[a-z0-9]+-stem"/);
+  });
+
   test("tilt range bounds the lean", () => {
     const r = growtype({
       ...opts,

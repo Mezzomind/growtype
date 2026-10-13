@@ -100,6 +100,11 @@ export interface GrowtypeOptions {
   flare?: number;
   /** How organic / irregular stems are, 0–1+. Default 0.6. */
   wobble?: number;
+  /**
+   * How much stalks differ from one another, 0–1+: thickness, foot size and lopsidedness, C/S
+   * bows, nodal swellings, knob size, tone and the odd side branch with a spore head. Default 0.7.
+   */
+  stemVariance?: number;
   /** Little root filaments splaying from each base. Default 3. */
   rhizoids?: number;
 
@@ -168,6 +173,7 @@ export const DEFAULTS = {
   flare: 3,
   wobble: 0.6,
   rhizoids: 3,
+  stemVariance: 0.7,
   tilt: 18,
   tiltCoherence: 0.6,
   twist: 6,

@@ -1,4 +1,10 @@
 @font-face {
+  font-family: "Freckle Face";
+  src: url("/fonts/FreckleFace-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
   font-family: "Young Serif";
   src: url("/fonts/YoungSerif-Regular.ttf") format("truetype");
   font-display: swap;
@@ -51,9 +57,9 @@ body {
   padding: 18px 16px 10px;
 }
 .brand h1 {
-  font-family: "Young Serif", Georgia, serif;
+  font-family: "Freckle Face", Georgia, serif;
   font-weight: 400;
-  font-size: 28px;
+  font-size: 30px;
   margin: 0;
 }
 .brand p {

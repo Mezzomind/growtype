@@ -238,6 +238,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       wobble,
       wilt: u,
       rhizoids: rhizoidCount,
+      variance: o.stemVariance ?? DEFAULTS.stemVariance,
       rand: rng.stream(i, "stem"),
     });
 
@@ -253,7 +254,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     let stemMask: string | undefined;
     if (grow) {
       const id = `${p}-m${i}`;
-      const w = (stem.maxHalfWidth + wobble * thickness * shrink * 2.5 + 2) * 2.4;
+      const w = (stem.maxHalfWidth + wobble * thickness * shrink * 1.5 + 2) * 2.4;
       defs.push(
         `<mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="${fmt(o.width)}" height="${fmt(o.height)}">` +
           `<path${attrs({
@@ -286,7 +287,16 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
           .join("") +
         `</g>`
       : "";
-    const stemMarkup = `<path${attrs({ class: `${p}-stem`, d: stem.outline, fill: stemColor, mask: stemMask })}/>`;
+    const stemAttrs = {
+      class: `${p}-stem`,
+      fill: stemColor,
+      opacity: stem.opacity < 0.995 ? fmt(stem.opacity, 2) : undefined,
+      mask: stemMask,
+    };
+    const stemMarkup =
+      stem.shapes.length === 1
+        ? `<path${attrs({ ...stemAttrs, d: stem.shapes[0]! })}/>`
+        : `<g${attrs(stemAttrs)}>${stem.shapes.map((d) => `<path d="${d}"/>`).join("")}</g>`;
 
     // ---- Glyph ----
     const color = o.palette?.length
