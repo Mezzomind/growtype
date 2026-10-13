@@ -286,13 +286,15 @@ export type FontInput = GrowFont | FontAdapter | CssFont | string;
  */
 export class FallbackFontAdapter implements FontAdapter {
   readonly kind: "path" | "text";
+  readonly primary: FontAdapter;
+  readonly fallback: FontAdapter;
+  /** Size of fallback glyphs relative to the font size. */
+  readonly scale: number;
 
-  constructor(
-    readonly primary: FontAdapter,
-    readonly fallback: FontAdapter,
-    /** Size of fallback glyphs relative to the font size. */
-    readonly scale = 1,
-  ) {
+  constructor(primary: FontAdapter, fallback: FontAdapter, scale = 1) {
+    this.primary = primary;
+    this.fallback = fallback;
+    this.scale = scale;
     this.kind = primary.kind;
   }
 

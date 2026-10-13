@@ -16,13 +16,14 @@ describe("splitGraphemes", () => {
   });
 
   test("fallback splitter matches Intl.Segmenter", () => {
-    const segmenter = Intl.Segmenter;
+    // Simulate an environment without Intl.Segmenter.
+    const intl = Intl as { Segmenter?: typeof Intl.Segmenter };
+    const segmenter = intl.Segmenter;
     try {
-      // @ts-expect-error -- simulate an environment without Intl.Segmenter
-      delete Intl.Segmenter;
+      delete intl.Segmenter;
       expect(splitGraphemes(`a${SEQUENCES.join("")}b`)).toEqual(["a", ...SEQUENCES, "b"]);
     } finally {
-      Intl.Segmenter = segmenter;
+      intl.Segmenter = segmenter;
     }
   });
 });
