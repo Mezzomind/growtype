@@ -3,6 +3,8 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
+    // Build against @growtype/core's published types (not its source, which the dev tsconfig maps).
+    tsconfig: "tsconfig.build.json",
     deps: { resolveDepSubpath: true },
     dts: { generator: "tsgo" },
     exports: true,

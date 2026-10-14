@@ -31,3 +31,6 @@ dist-ssr
 
 # AI agent worktrees
 .claude/worktrees/
+
+# Declarations are only generated into dist
+packages/*/src/**/*.d.ts
