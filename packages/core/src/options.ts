@@ -168,6 +168,12 @@ export interface GrowtypeOptions {
    * Use it when the wilt stage changes (`fromWilt` → `wilt`). Default none.
    */
   blast?: BlastOptions;
+  /**
+   * Spacing of stem bases within a word relative to the glyphs, 0–1. Below 1 the bases huddle
+   * towards the middle of each word and the stalks fan out to hold the glyphs at their normal
+   * spacing, like a tuft. Default 1.
+   */
+  baseSpacing?: number;
   /** Nudge leans, heights and twists so glyphs don't overlap their neighbours. Default true. */
   avoidOverlap?: boolean;
 
@@ -233,6 +239,7 @@ export const DEFAULTS = {
   sway: { amplitude: 3, period: 3.2 },
   wave: { amplitude: 6, travel: 2.5, period: 5 } as Required<WaveOptions>,
   avoidOverlap: true,
+  baseSpacing: 1,
   blast: {
     direction: "left",
     at: 0,

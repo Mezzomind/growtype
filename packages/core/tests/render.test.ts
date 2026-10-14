@@ -75,11 +75,21 @@ describe("growtype", () => {
     let before = 0;
     let after = 0;
     for (let seed = 1; seed <= 12; seed++) {
+      // Tight kerning means some pairs touch even standing upright; count only what's added.
+      const up = growtype({
+        ...strong,
+        seed,
+        tilt: 0,
+        twist: 0,
+        wilt: 0,
+        avoidOverlap: false,
+      }).characters;
       const count = (avoidOverlap: boolean) => {
         const cs = growtype({ ...strong, seed, avoidOverlap }).characters;
         let n = 0;
         for (let i = 0; i + 1 < cs.length; i++) {
-          if (polygonOverlap(cs[i]!.outline, cs[i + 1]!.outline) > 2) n++;
+          const inherent = Math.max(0, polygonOverlap(up[i]!.outline, up[i + 1]!.outline));
+          if (polygonOverlap(cs[i]!.outline, cs[i + 1]!.outline) - inherent > 2) n++;
         }
         return n;
       };
@@ -88,6 +98,40 @@ describe("growtype", () => {
     }
     expect(before).toBeGreaterThan(10);
     expect(after).toBeLessThanOrEqual(1);
+  });
+
+  test("ink anchors keep glyphs at their natural spacing", () => {
+    const text = "jumpy gq";
+    const flat = { ...opts, text, path: "M0 200 L500 200", tilt: 0, twist: 0, avoidOverlap: false };
+    const centre = (pts: { x: number }[]) =>
+      (Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2;
+    const baseline = growtype({ ...flat, anchor: "baseline" }).characters;
+    const ink = growtype({ ...flat, anchor: "ink" }).characters;
+    for (const [i, c] of ink.entries()) {
+      // Same horizontal position as baseline-anchored glyphs, however far the ink anchor is off-centre.
+      expect(centre(c.outline)).toBeCloseTo(centre(baseline[i]!.outline), 3);
+      // And the same baseline height.
+      const bottom = (pts: { y: number }[]) => Math.max(...pts.map((p) => p.y));
+      expect(bottom(c.outline)).toBeCloseTo(bottom(baseline[i]!.outline), 3);
+    }
+  });
+
+  test("baseSpacing gathers stem bases within words but keeps glyphs in place", () => {
+    const text = "moss grows";
+    const flat = { ...opts, text, path: "M0 200 L500 200", tilt: 0, twist: 0, avoidOverlap: false };
+    const loose = growtype({ ...flat, baseSpacing: 1 }).characters;
+    const tight = growtype({ ...flat, baseSpacing: 0.4 }).characters;
+    const span = (cs: typeof loose, from: number, to: number) => cs[to]!.base.x - cs[from]!.base.x;
+    // "moss" is characters 0–3, "grows" 4–8: each word's bases huddle together…
+    expect(span(tight, 0, 3)).toBeCloseTo(span(loose, 0, 3) * 0.4, 3);
+    expect(span(tight, 4, 8)).toBeCloseTo(span(loose, 4, 8) * 0.4, 3);
+    // …while each word keeps its own centre, and the glyphs stay where they were.
+    const mid = (cs: typeof loose, a: number, b: number) => (cs[a]!.base.x + cs[b]!.base.x) / 2;
+    expect(mid(tight, 4, 8)).toBeCloseTo(mid(loose, 4, 8), 3);
+    for (const [i, c] of tight.entries()) {
+      expect(c.tip.x).toBeCloseTo(loose[i]!.tip.x, 3);
+      expect(c.tip.y).toBeCloseTo(loose[i]!.tip.y, 3);
+    }
   });
 
   test("tilt range bounds the lean", () => {
@@ -115,7 +159,9 @@ describe("growtype", () => {
     expect(renderGrowtype(opts)).not.toContain("<style>");
     const anim = growtype({ ...opts, grow: true, sway: { wave: true } });
     expect(anim.svg).toContain("@keyframes");
-    expect(anim.svg).toContain("<mask");
+    // Stalks grow by a transform stretch, not an animated mask (masks can flicker).
+    expect(anim.svg).not.toContain("<mask");
+    expect(anim.svg).toContain("-stretch");
     expect(anim.svg).toContain("-gust");
     expect(anim.svg).toContain("prefers-reduced-motion");
     expect(anim.growDuration).toBeGreaterThan(1);

@@ -1,4 +1,4 @@
-import { toFontAdapter } from "./font.ts";
+import { type GlyphInfo, toFontAdapter } from "./font.ts";
 import {
   type Point,
   add,
@@ -92,9 +92,11 @@ function opt<T extends object>(v: boolean | T | undefined, defaults: T): Require
 
 function css(p: string): string {
   return [
-    `.${p} .${p}-sway,.${p} .${p}-gust,.${p} .${p}-foot,.${p} .${p}-pop,.${p} .${p}-spore{transform-box:view-box}`,
+    `.${p} .${p}-stretch,.${p} .${p}-sway,.${p} .${p}-gust,.${p} .${p}-foot,.${p} .${p}-pop,.${p} .${p}-spore{transform-box:view-box}`,
     `.${p}-foot{animation:${p}-scale-in .4s cubic-bezier(.2,.8,.3,1.2) both}`,
     `.${p}-reveal{animation:${p}-reveal .8s cubic-bezier(.4,0,.3,1) both}`,
+    `.${p}-stretch{animation:${p}-stretch .8s cubic-bezier(.3,.6,.35,1.08) both}`,
+    `@keyframes ${p}-stretch{from{transform:rotate(var(--ax)) scale(1,.001) rotate(calc(var(--ax) * -1))}to{transform:rotate(var(--ax)) scale(1,1) rotate(calc(var(--ax) * -1))}}`,
     `.${p}-pop{animation:${p}-pop .5s cubic-bezier(.3,.7,.4,1) both}`,
     `.${p}-fade{animation:${p}-fade .8s ease-out both}`,
     `.${p}-sway{animation:${p}-sway 3s ease-in-out infinite}`,
@@ -127,6 +129,10 @@ interface Pose {
   normal: Point;
   /** Lean of the stalk in degrees (positive = clockwise). */
   lean: number;
+  /** The lean needed to reach the glyph's laid-out position (non-zero when bases are gathered). */
+  lean0: number;
+  /** Path normal under the glyph itself; the glyph stands relative to this, not to its stalk. */
+  glyphNormal: Point;
   length: number;
   /** Glyph rotation relative to its stalk, degrees. */
   twist: number;
@@ -142,7 +148,12 @@ interface Pose {
 
 function poseGeometry(q: Pose) {
   const phi = q.lean + q.droopSign * q.droop;
-  const tipDir = rotate(q.normal, phi + q.droopSign * q.u * 6 + q.twist);
+  // The glyph keeps its own lean (not the structural fan-out of a gathered base) relative to the
+  // path under it; the stalk curves to meet it.
+  const tipDir = rotate(
+    q.glyphNormal,
+    q.lean - q.lean0 + q.droopSign * (q.droop + q.u * 6) + q.twist,
+  );
   const anchorPt = add(q.base, scale(rotate(q.normal, phi), q.length * (1 - 0.12 * q.u)));
   return { tipDir, anchorPt, rotation: angleDeg(tipDir) + 90, glyphScale: 1 - 0.07 * q.u };
 }
@@ -208,7 +219,7 @@ function resolveOverlaps(poses: Pose[], o: { fontSize: number; stemHalf: number 
       polygonOverlap(a.stem, b.glyph),
     );
   };
-  const upright = (q: Pose): Pose => ({ ...q, lean: 0, twist: 0, droop: 0 });
+  const upright = (q: Pose): Pose => ({ ...q, lean: q.lean0, twist: 0, droop: 0 });
 
   const shapes = poses.map(shapeOf);
   const pairs: Array<{ i: number; j: number; allowed: number }> = [];
@@ -230,9 +241,11 @@ function resolveOverlaps(poses: Pose[], o: { fontSize: number; stemHalf: number 
       const b = poses[pr.j]!;
       // Make the pair parallel – same lean, same droop direction – which keeps their spacing even,
       // and ease both towards upright, which is guaranteed to be clear.
-      const mean = ((a.lean + b.lean) / 2) * 0.9;
-      a.lean += (mean - a.lean) * 0.5;
-      b.lean += (mean - b.lean) * 0.5;
+      const da = a.lean - a.lean0;
+      const db = b.lean - b.lean0;
+      const mean = ((da + db) / 2) * 0.9;
+      a.lean = a.lean0 + da + (mean - da) * 0.5;
+      b.lean = b.lean0 + db + (mean - db) * 0.5;
       a.twist *= 0.6;
       b.twist *= 0.6;
       b.droopSign = a.droopSign;
@@ -301,6 +314,11 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     justify,
     inset: o.inset ?? DEFAULTS.inset,
   });
+  const anchorOf = (g: GlyphInfo): Point =>
+    anchorMode === "ink" && g.inkBottom ? g.inkBottom : { x: g.advance / 2, y: 0 };
+  // Plant each sprout under its glyph's anchor rather than the middle of its advance, so an ink
+  // anchor (e.g. the tail of a "j") doesn't shove the glyph sideways into its neighbours.
+  for (const c of layout.chars) c.s = c.s - c.advance / 2 + anchorOf(c.glyph).x;
   if (arcMap) {
     for (const c of layout.chars) c.s = arcMap.toBase(c.s);
     layout.start = arcMap.toBase(layout.start);
@@ -356,29 +374,67 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   const fromWilt = blast?.fromWilt !== undefined ? wiltIndex(blast.fromWilt) : wilt;
   const stemHalf = thickness * shrink * 0.8;
 
+  // Within a word, stem bases can huddle closer together than the glyphs they hold up.
+  const baseSpacing = clamp(o.baseSpacing ?? DEFAULTS.baseSpacing, 0, 1);
+  const baseS = new Map<number, number>();
+  let word: LaidOutChar[] = [];
+  const flushWord = () => {
+    if (word.length) {
+      const mid = (word[0]!.s + word[word.length - 1]!.s) / 2;
+      for (const w of word) baseS.set(w.index, mid + (w.s - mid) * baseSpacing);
+    }
+    word = [];
+  };
+  for (const c of layout.chars) {
+    if (c.isSpace) flushWord();
+    else word.push(c);
+  }
+  flushWord();
+
+  const normalAt = (s: number) => {
+    const ln = leftNormal(sampler.tangentAt(s));
+    return side === "left" ? ln : scale(ln, -1);
+  };
+
   const poses: Pose[] = visible.map((c) => {
     const i = c.index;
     const r = (ch: string) => rng.value(i, ch);
-    const base = sampler.pointAt(c.s);
-    const tangent = sampler.tangentAt(c.s);
-    const ln = leftNormal(tangent);
-    const normal = side === "left" ? ln : scale(ln, -1);
+    const sBase = baseS.get(i) ?? c.s;
+    const base = sampler.pointAt(sBase);
+    const tangent = sampler.tangentAt(sBase);
+    const normal = normalAt(sBase);
+    const anchorLocal = anchorOf(c.glyph);
+    // With an ink anchor the stem meets the glyph below its baseline (a descender's tail):
+    // shorten it by that much so baselines still line up from letter to letter.
+    const stemLen = stemLength * shrink * (1 + lengthVar * (r("length") * 2 - 1));
+    let length = Math.max(stemLen * 0.25, stemLen - anchorLocal.y);
+    // The structural lean that carries a gathered base out to where its glyph belongs.
+    let lean0 = 0;
+    if (sBase !== c.s) {
+      const target = add(sampler.pointAt(c.s), scale(normalAt(c.s), length));
+      const v = sub(target, base);
+      lean0 =
+        (Math.atan2(normal.x * v.y - normal.y * v.x, normal.x * v.x + normal.y * v.y) * 180) /
+        Math.PI;
+      length = Math.hypot(v.x, v.y);
+    }
     // Blend independent jitter with a smooth "field" so neighbours lean together and collide less.
     const leanT = clamp((1 - coherence) * r("tilt") + coherence * leanField(c.s), 0, 1);
-    const lean = tiltMin + (tiltMax - tiltMin) * leanT;
-    const g = c.glyph;
+    const jitter = tiltMin + (tiltMax - tiltMin) * leanT;
     return {
       c,
       base,
       tangent,
       normal,
-      lean,
-      length: stemLength * shrink * (1 + lengthVar * (r("length") * 2 - 1)),
+      lean: lean0 + jitter,
+      lean0,
+      glyphNormal: sBase !== c.s ? normalAt(c.s) : normal,
+      length,
       twist: twist * (r("twist") * 2 - 1),
       u: 0,
       droop: 0,
-      droopSign: Math.abs(lean) > 2 ? Math.sign(lean) : r("droop-side") < 0.5 ? -1 : 1,
-      anchorLocal: anchorMode === "ink" && g.inkBottom ? g.inkBottom : { x: g.advance / 2, y: 0 },
+      droopSign: Math.abs(jitter) > 2 ? Math.sign(jitter) : r("droop-side") < 0.5 ? -1 : 1,
+      anchorLocal,
       hit: 0,
     };
   });
@@ -452,28 +508,6 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     growEndAll = Math.max(growEndAll, growEnd);
 
     // ---- Stem ----
-    let stemMask: string | undefined;
-    if (grow) {
-      const id = `${p}-m${i}`;
-      const w = (stem.maxHalfWidth + wobble * thickness * shrink * 1.5 + 2) * 2.4;
-      defs.push(
-        `<mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="${fmt(o.width)}" height="${fmt(o.height)}">` +
-          `<path${attrs({
-            class: `${p}-reveal`,
-            d: stem.centerline,
-            fill: "none",
-            stroke: "#fff",
-            "stroke-width": w,
-            pathLength: 1,
-            "stroke-dasharray": "1 1",
-            style: style({
-              "animation-delay": at(delay + dur * 0.1),
-              "animation-duration": sec(dur * 0.6),
-            }),
-          })}/></mask>`,
-      );
-      stemMask = `url(#${id})`;
-    }
     const footStyle = grow
       ? style({
           "transform-origin": origin(base),
@@ -492,12 +526,25 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       class: `${p}-stem`,
       fill: stemColor,
       opacity: stem.opacity < 0.995 ? fmt(stem.opacity, 2) : undefined,
-      mask: stemMask,
     };
-    const stemMarkup =
+    let stemMarkup =
       stem.shapes.length === 1
         ? `<path${attrs({ ...stemAttrs, d: stem.shapes[0]! })}/>`
         : `<g${attrs(stemAttrs)}>${stem.shapes.map((d) => `<path d="${d}"/>`).join("")}</g>`;
+    if (grow) {
+      // Stretch the stalk out of its foot along its own axis. A pure transform animation:
+      // cheap to composite and nothing to re-rasterise per frame (unlike an animated mask).
+      const axis = sub(anchorPt, base);
+      stemMarkup = `<g${attrs({
+        class: `${p}-stretch`,
+        style: style({
+          "--ax": `${fmt(angleDeg(axis) - 90)}deg`,
+          "transform-origin": origin(base),
+          "animation-delay": at(delay + dur * 0.1),
+          "animation-duration": sec(dur * 0.6),
+        }),
+      })}>${stemMarkup}</g>`;
+    }
 
     // ---- Glyph ----
     const color = o.palette?.length
@@ -525,9 +572,15 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     // ---- Sway ----
     let inner = rhizoidMarkup + stemMarkup + glyphGroup;
     if (sway) {
-      const period = sway.period * (0.75 + 0.55 * r("sway-period"));
-      const amp = sway.amplitude * (0.6 + 0.8 * r("sway-amp")) * (r("sway-dir") < 0.5 ? -1 : 1);
-      const swayDelay = grow ? growEnd : -r("sway-phase") * period;
+      // One shared period with the phase following position along the path: a slow travelling
+      // wave, so neighbours move nearly together instead of swinging into each other.
+      const period = sway.period;
+      const phase = ((c.s / (fontSize * 10)) * period + r("sway-phase") * period * 0.08) % period;
+      const amp = sway.amplitude * (0.8 + 0.4 * r("sway-amp"));
+      // Start on a beat of this sprout's phase, but never before it has finished growing.
+      const startAfter = grow ? growEnd : 0;
+      const swayDelay =
+        phase + Math.ceil((startAfter - phase) / period) * period - (grow ? 0 : period);
       inner = `<g${attrs({
         class: `${p}-sway`,
         style: style({

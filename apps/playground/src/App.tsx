@@ -28,6 +28,7 @@ interface Settings {
   layout: "natural" | "fill";
   justify: "start" | "center" | "end";
   avoidOverlap: boolean;
+  baseSpacing: number;
   blastOnWilt: boolean;
   blastFrom: "left" | "right";
   blastStrength: number;
@@ -81,6 +82,7 @@ const INITIAL: Settings = {
   layout: "natural",
   justify: "center",
   avoidOverlap: true,
+  baseSpacing: 0.7,
   blastOnWilt: true,
   blastFrom: "left",
   blastStrength: 22,
@@ -267,6 +269,7 @@ export function App() {
       anchor: s.anchor,
       compensateCurvature: s.compensateCurvature,
       avoidOverlap: s.avoidOverlap,
+      baseSpacing: s.baseSpacing,
       stemLength: s.stemLength,
       stemLengthVariance: s.stemLengthVariance,
       stemThickness: s.stemThickness,
@@ -565,6 +568,14 @@ export function App() {
             max={1.5}
             step={0.01}
             onChange={(v) => set("stemVariance", v)}
+          />
+          <Slider
+            label="Base spacing"
+            value={s.baseSpacing}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={(v) => set("baseSpacing", v)}
           />
         </Section>
 
@@ -916,6 +927,7 @@ function Snippet({ settings: s, pathData }: { settings: Settings; pathData: stri
     anchor: s.anchor,
     compensateCurvature: s.compensateCurvature,
     avoidOverlap: s.avoidOverlap,
+    baseSpacing: s.baseSpacing,
     stemLength: s.stemLength,
     stemLengthVariance: s.stemLengthVariance,
     stemThickness: s.stemThickness,
