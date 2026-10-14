@@ -141,8 +141,6 @@ export interface GrowtypeOptions {
    * bows, nodal swellings, knob size, tone and the odd side branch with a spore head. Default 0.7.
    */
   stemVariance?: number;
-  /** Little root filaments splaying from each base. Default 3. */
-  rhizoids?: number;
 
   /** Max lean in degrees, either ±n or an explicit [min, max] range. Default 18. */
   tilt?: number | readonly [number, number];
@@ -222,7 +220,6 @@ export const DEFAULTS = {
   stemThickness: 2.2,
   flare: 3,
   wobble: 0.6,
-  rhizoids: 3,
   stemVariance: 0.7,
   tilt: 18,
   tiltCoherence: 0.6,

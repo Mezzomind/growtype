@@ -5,132 +5,16 @@ import {
   type GrowtypeOptions,
   type Point,
   WILT_STAGES,
-  type WiltStage,
-  growtype,
   loadFont,
   parseFont,
   pathInputToData,
 } from "@growtype/core";
+import { type GrowtypeConfig, useGrowtype } from "@growtype/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { fromConfig, toConfig, toReactSnippet } from "./config.ts";
 import { Color, Section, Segmented, Select, Slider, Toggle } from "./controls.tsx";
 import { FONT_CHOICES, PALETTES, PATH_PRESETS } from "./presets.ts";
-
-type PathSource = { kind: "preset"; name: string } | { kind: "custom"; d: string };
-
-interface Settings {
-  text: string;
-  fontChoice: string;
-  width: number;
-  height: number;
-  path: PathSource;
-  fontSize: number;
-  letterSpacing: number;
-  layout: "natural" | "fill";
-  justify: "start" | "center" | "end";
-  avoidOverlap: boolean;
-  baseSpacing: number;
-  blastOnWilt: boolean;
-  blastFrom: "left" | "right";
-  blastStrength: number;
-  inset: number;
-  side: "left" | "right";
-  anchor: "baseline" | "ink";
-  compensateCurvature: boolean;
-  stemLength: number;
-  stemLengthVariance: number;
-  stemThickness: number;
-  flare: number;
-  wobble: number;
-  rhizoids: number;
-  stemVariance: number;
-  tiltMin: number;
-  tiltMax: number;
-  tiltCoherence: number;
-  twist: number;
-  wilt: WiltStage;
-  seed: number;
-  grow: boolean;
-  growDuration: number;
-  growStagger: number;
-  growOrder: "auto" | "start" | "end" | "center" | "random";
-  sway: boolean;
-  swayAmplitude: number;
-  swayPeriod: number;
-  wave: boolean;
-  waveAmplitude: number;
-  glyphColor: string;
-  stemColor: string;
-  palette: string;
-  showPath: boolean;
-  pathColor: string;
-  pathWidth: number;
-  spores: boolean;
-  sporeCount: number;
-  sporeSize: number;
-  background: string;
-  transparent: boolean;
-}
-
-const INITIAL: Settings = {
-  text: "🍄 spores of 🧠 thought ✨",
-  fontChoice: FONT_CHOICES[0]!.label,
-  width: 900,
-  height: 420,
-  path: { kind: "preset", name: "Wave" },
-  fontSize: 54,
-  letterSpacing: 6,
-  layout: "natural",
-  justify: "center",
-  avoidOverlap: true,
-  baseSpacing: 0.7,
-  blastOnWilt: true,
-  blastFrom: "left",
-  blastStrength: 22,
-  inset: 20,
-  side: "left",
-  anchor: "baseline",
-  compensateCurvature: true,
-  stemLength: 44,
-  stemLengthVariance: 0.35,
-  stemThickness: 2.4,
-  flare: 3,
-  wobble: 0.6,
-  rhizoids: 3,
-  stemVariance: 0.7,
-  tiltMin: -12,
-  tiltMax: 12,
-  tiltCoherence: 0.7,
-  twist: 6,
-  wilt: "full",
-  seed: 1,
-  grow: true,
-  growDuration: 1.2,
-  growStagger: 0.08,
-  growOrder: "auto",
-  sway: true,
-  swayAmplitude: 3,
-  swayPeriod: 3.2,
-  wave: false,
-  waveAmplitude: 6,
-  glyphColor: "#24301a",
-  stemColor: "#7c8f55",
-  palette: "None",
-  showPath: true,
-  pathColor: "#7c8f55",
-  pathWidth: 2.5,
-  spores: true,
-  sporeCount: 2.5,
-  sporeSize: 1.4,
-  background: "#f4efe3",
-  transparent: false,
-};
-
-const WILT_LABELS: Record<WiltStage, string> = {
-  full: "Full",
-  "slightly-damaged": "Slightly damaged",
-  damaged: "Damaged",
-  wilted: "Wilted",
-};
+import { INITIAL, type Settings, WILT_LABELS } from "./settings.ts";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -202,42 +86,10 @@ export function App() {
   const { files, cssReady, error: fontError, addUpload } = useFonts();
   const [drawing, setDrawing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  // Animation epoch: re-renders continue the timeline from here instead of restarting it.
-  const epoch = useRef(performance.now());
-  const [replayKey, setReplayKey] = useState(0);
 
   const wiltTarget = WILT_STAGES.indexOf(s.wilt);
+  // Without the blast, wilt changes ease in instead.
   const tweened = useTween(wiltTarget);
-  const timeline = () => (performance.now() - epoch.current) / 1000;
-
-  // Blast wave: when the wilt stage changes, sweep a shock front across the text and re-render
-  // every frame while it plays so each sprout wilts as the front reaches it.
-  const BLAST_DURATION = 1.1;
-  const BLAST_RECOIL = 1.6;
-  const [blast, setBlast] = useState<{ at: number; fromWilt: number } | null>(null);
-  const [frame, setFrame] = useState(0);
-  const prevWilt = useRef(wiltTarget);
-  const fireBlast = useCallback((fromWilt: number) => {
-    const at = timeline() + 0.05;
-    setBlast({ at, fromWilt });
-    const end = at + BLAST_DURATION + BLAST_RECOIL + 0.3;
-    const tick = () => {
-      if (timeline() > end) {
-        setBlast(null);
-        return;
-      }
-      setFrame((f) => f + 1);
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  }, []);
-  useEffect(() => {
-    if (prevWilt.current === wiltTarget) return;
-    const from = prevWilt.current;
-    prevWilt.current = wiltTarget;
-    if (s.blastOnWilt) fireBlast(from);
-  }, [wiltTarget, s.blastOnWilt, fireBlast]);
-  const wilt = s.blastOnWilt ? wiltTarget : tweened;
 
   const pathData = useMemo(() => {
     if (s.path.kind === "custom") return s.path.d;
@@ -252,90 +104,25 @@ export function App() {
     // cssReady invalidates cached canvas measurements once web fonts load.
   }, [s.fontChoice, files, cssReady]);
 
+  // The settings as plain-JSON <Growtype> props: what the Config panel exports.
+  const config = useMemo(() => toConfig(s, pathData), [s, pathData]);
+
   const options: GrowtypeOptions | null = useMemo(() => {
     if (!font) return null;
-    return {
-      text: s.text,
-      font,
-      path: pathData,
-      width: s.width,
-      height: s.height,
-      fontSize: s.fontSize,
-      letterSpacing: s.letterSpacing,
-      layout: s.layout,
-      justify: s.justify,
-      inset: s.inset,
-      side: s.side,
-      anchor: s.anchor,
-      compensateCurvature: s.compensateCurvature,
-      avoidOverlap: s.avoidOverlap,
-      baseSpacing: s.baseSpacing,
-      stemLength: s.stemLength,
-      stemLengthVariance: s.stemLengthVariance,
-      stemThickness: s.stemThickness,
-      flare: s.flare,
-      wobble: s.wobble,
-      rhizoids: s.rhizoids,
-      stemVariance: s.stemVariance,
-      tilt: [Math.min(s.tiltMin, s.tiltMax), Math.max(s.tiltMin, s.tiltMax)],
-      tiltCoherence: s.tiltCoherence,
-      twist: s.twist,
-      wilt,
-      seed: s.seed,
-      grow: s.grow && { duration: s.growDuration, stagger: s.growStagger, order: s.growOrder },
-      sway: s.sway && {
-        amplitude: s.swayAmplitude,
-        period: s.swayPeriod,
-        wave: s.wave && { amplitude: s.waveAmplitude },
-      },
-      glyphColor: s.glyphColor,
-      palette: PALETTES[s.palette] ?? undefined,
-      stemColor: s.stemColor,
-      showPath: s.showPath && { color: s.pathColor, width: s.pathWidth },
-      spores: s.spores && { count: s.sporeCount, size: s.sporeSize },
-      background: s.transparent ? undefined : s.background,
-      blast: blast
-        ? {
-            direction: s.blastFrom,
-            at: blast.at,
-            duration: BLAST_DURATION,
-            recoil: BLAST_RECOIL,
-            strength: s.blastStrength,
-            fromWilt: blast.fromWilt,
-          }
-        : undefined,
-    };
-  }, [s, font, pathData, wilt, blast]);
+    const {
+      fontUrl: _fontUrl,
+      font: _font,
+      blastOnWiltChange: _blast,
+      restartOnChange: _restart,
+      ...rest
+    } = config;
+    return { ...rest, font, wilt: s.blastOnWilt ? wiltTarget : tweened };
+  }, [config, font, s.blastOnWilt, wiltTarget, tweened]);
 
-  const result = useMemo(() => {
-    if (!options) return null;
-    try {
-      void replayKey;
-      void frame;
-      const timeOffset = (performance.now() - epoch.current) / 1000;
-      return { ...growtype({ ...options, timeOffset }), error: null };
-    } catch (e) {
-      return {
-        svg: "",
-        error: String(e),
-        fontSize: 0,
-        growDuration: 0,
-        characters: [],
-        pathLength: 0,
-      };
-    }
-  }, [options, replayKey, frame]);
-
-  // The exported SVG always starts its timeline from zero, without the transient blast.
-  const exportSvg = useCallback(
-    () => (options ? growtype({ ...options, blast: undefined }).svg : ""),
-    [options],
-  );
-
-  const replay = () => {
-    epoch.current = performance.now();
-    setReplayKey((k) => k + 1);
-  };
+  const g = useGrowtype(options, { blastOnWiltChange: config.blastOnWiltChange });
+  const result = g.result;
+  const replay = g.replay;
+  const exportSvg = g.toSVG;
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -553,13 +340,6 @@ export function App() {
             max={2}
             step={0.01}
             onChange={(v) => set("wobble", v)}
-          />
-          <Slider
-            label="Rhizoids"
-            value={s.rhizoids}
-            min={0}
-            max={8}
-            onChange={(v) => set("rhizoids", v)}
           />
           <Slider
             label="Variation"
@@ -787,7 +567,10 @@ export function App() {
           <button type="button" onClick={replay}>
             ↻ Replay
           </button>
-          <button type="button" onClick={() => fireBlast(wiltTarget)}>
+          <button
+            type="button"
+            onClick={() => g.blast({ direction: s.blastFrom, strength: s.blastStrength })}
+          >
             💥 Blast
           </button>
           <button type="button" onClick={download} disabled={!result?.svg}>
@@ -799,7 +582,7 @@ export function App() {
           <button type="button" onClick={() => setS(INITIAL)}>
             Reset
           </button>
-          {result && !result.error && (
+          {result && (
             <span className="meta">
               {result.characters.length} sprouts · {result.fontSize.toFixed(1)}px
               {result.fontSize < s.fontSize - 0.05 ? " (shrunk to fit)" : ""}
@@ -809,7 +592,7 @@ export function App() {
         </div>
         <div className="canvas" style={{ aspectRatio: `${s.width} / ${s.height}` }}>
           {!font && <p className="loading">Loading font…</p>}
-          {result?.error && <p className="error">{result.error}</p>}
+          {g.error && <p className="error">{g.error.message}</p>}
           {result?.svg && (
             <div className="svg-host" dangerouslySetInnerHTML={{ __html: result.svg }} />
           )}
@@ -827,7 +610,17 @@ export function App() {
             />
           )}
         </div>
-        <Snippet settings={s} pathData={pathData} />
+        <ConfigPanel
+          config={config}
+          onImport={(json) => {
+            const r = fromConfig(json, s);
+            if ("error" in r) return { ok: false, message: r.error };
+            setS(r.settings);
+            replay();
+            return { ok: true, message: ["Applied.", ...r.notes].join(" ") };
+          }}
+          onCopied={flash}
+        />
       </main>
     </div>
   );
@@ -908,57 +701,81 @@ function DrawOverlay({
   );
 }
 
-function Snippet({ settings: s, pathData }: { settings: Settings; pathData: string }) {
-  const choice = FONT_CHOICES.find((c) => c.label === s.fontChoice);
-  const fontExpr = choice?.css
-    ? JSON.stringify(choice.css)
-    : `await loadFont(${JSON.stringify(choice?.file ?? "your-font.ttf")})`;
-  const opts: Record<string, unknown> = {
-    text: s.text,
-    path: pathData,
-    width: s.width,
-    height: s.height,
-    fontSize: s.fontSize,
-    letterSpacing: s.letterSpacing,
-    layout: s.layout,
-    justify: s.justify,
-    inset: s.inset,
-    side: s.side,
-    anchor: s.anchor,
-    compensateCurvature: s.compensateCurvature,
-    avoidOverlap: s.avoidOverlap,
-    baseSpacing: s.baseSpacing,
-    stemLength: s.stemLength,
-    stemLengthVariance: s.stemLengthVariance,
-    stemThickness: s.stemThickness,
-    flare: s.flare,
-    wobble: s.wobble,
-    rhizoids: s.rhizoids,
-    stemVariance: s.stemVariance,
-    tilt: [Math.min(s.tiltMin, s.tiltMax), Math.max(s.tiltMin, s.tiltMax)],
-    tiltCoherence: s.tiltCoherence,
-    twist: s.twist,
-    wilt: s.wilt,
-    seed: s.seed,
-    grow: s.grow && { duration: s.growDuration, stagger: s.growStagger, order: s.growOrder },
-    sway: s.sway && {
-      amplitude: s.swayAmplitude,
-      period: s.swayPeriod,
-      wave: s.wave && { amplitude: s.waveAmplitude },
-    },
-    glyphColor: s.glyphColor,
-    palette: PALETTES[s.palette] ?? undefined,
-    stemColor: s.stemColor,
-    showPath: s.showPath && { color: s.pathColor, width: s.pathWidth },
-    spores: s.spores && { count: s.sporeCount, size: s.sporeSize },
-    background: s.transparent ? undefined : s.background,
+function ConfigPanel({
+  config,
+  onImport,
+  onCopied,
+}: {
+  config: GrowtypeConfig;
+  onImport: (json: string) => { ok: boolean; message: string };
+  onCopied: (msg: string) => void;
+}) {
+  const [tab, setTab] = useState<"json" | "react" | "import">("json");
+  const [draft, setDraft] = useState("");
+  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const json = JSON.stringify(config, null, 2);
+  const shown = tab === "react" ? toReactSnippet(config) : json;
+
+  const copy = async () => {
+    await navigator.clipboard.writeText(shown);
+    onCopied(tab === "react" ? "React snippet copied" : "Config copied");
   };
-  const body = JSON.stringify(opts, null, 2).replace(/\n}$/, `,\n  "font": ${fontExpr}\n}`);
-  const code = `import { renderGrowtype, loadFont } from "@growtype/core";\n\nconst svg = renderGrowtype(${body});`;
+  const apply = () => {
+    const { ok, message: text } = onImport(draft);
+    setMessage({ ok, text });
+  };
+
   return (
-    <details className="snippet">
-      <summary>Code</summary>
-      <pre className="mono">{code}</pre>
-    </details>
+    <section className="config">
+      <div className="config-head">
+        <h2>Config</h2>
+        <div className="segmented" role="tablist">
+          {(
+            [
+              ["json", "JSON"],
+              ["react", "React"],
+              ["import", "Import"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              className={tab === key ? "active" : ""}
+              onClick={() => {
+                setTab(key);
+                setMessage(null);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {tab === "import" ? (
+          <button type="button" onClick={apply} disabled={!draft.trim()}>
+            Apply
+          </button>
+        ) : (
+          <button type="button" onClick={() => void copy()}>
+            Copy
+          </button>
+        )}
+      </div>
+      {tab === "import" ? (
+        <>
+          <textarea
+            className="mono config-body"
+            rows={12}
+            placeholder="Paste a growtype config (JSON) here…"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          {message && <p className={message.ok ? "note" : "error"}>{message.text}</p>}
+        </>
+      ) : (
+        <pre className="mono config-body">{shown}</pre>
+      )}
+    </section>
   );
 }

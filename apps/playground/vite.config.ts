@@ -8,6 +8,9 @@ export default defineConfig({
     // Use the library source directly so edits hot-reload without a rebuild.
     alias: {
       "@growtype/core": fileURLToPath(new URL("../../packages/core/src/index.ts", import.meta.url)),
+      "@growtype/react": fileURLToPath(
+        new URL("../../packages/react/src/index.ts", import.meta.url),
+      ),
     },
   },
 });

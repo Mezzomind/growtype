@@ -92,8 +92,7 @@ function opt<T extends object>(v: boolean | T | undefined, defaults: T): Require
 
 function css(p: string): string {
   return [
-    `.${p} .${p}-stretch,.${p} .${p}-sway,.${p} .${p}-gust,.${p} .${p}-foot,.${p} .${p}-pop,.${p} .${p}-spore{transform-box:view-box}`,
-    `.${p}-foot{animation:${p}-scale-in .4s cubic-bezier(.2,.8,.3,1.2) both}`,
+    `.${p} .${p}-stretch,.${p} .${p}-sway,.${p} .${p}-gust,.${p} .${p}-pop,.${p} .${p}-spore{transform-box:view-box}`,
     `.${p}-reveal{animation:${p}-reveal .8s cubic-bezier(.4,0,.3,1) both}`,
     `.${p}-stretch{animation:${p}-stretch .8s cubic-bezier(.3,.6,.35,1.08) both}`,
     `@keyframes ${p}-stretch{from{transform:rotate(var(--ax)) scale(1,.001) rotate(calc(var(--ax) * -1))}to{transform:rotate(var(--ax)) scale(1,1) rotate(calc(var(--ax) * -1))}}`,
@@ -102,7 +101,6 @@ function css(p: string): string {
     `.${p}-sway{animation:${p}-sway 3s ease-in-out infinite}`,
     `.${p}-gust{animation:${p}-gust 5s ease-in-out infinite}`,
     `.${p}-drift{animation:${p}-drift 6s ease-in-out infinite}`,
-    `@keyframes ${p}-scale-in{from{transform:scale(0)}to{transform:scale(1)}}`,
     `@keyframes ${p}-reveal{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}`,
     `@keyframes ${p}-pop{0%{transform:scale(0) rotate(-14deg);opacity:0}55%{transform:scale(1.1) rotate(4deg);opacity:1}100%{transform:scale(1) rotate(0)}}`,
     `@keyframes ${p}-fade{from{opacity:0}to{opacity:1}}`,
@@ -282,7 +280,6 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   const thickness = o.stemThickness ?? DEFAULTS.stemThickness;
   const flare = o.flare ?? DEFAULTS.flare;
   const wobble = o.wobble ?? DEFAULTS.wobble;
-  const rhizoidCount = o.rhizoids ?? DEFAULTS.rhizoids;
   const tiltIn = o.tilt ?? DEFAULTS.tilt;
   const [tiltMin, tiltMax] = typeof tiltIn === "number" ? [-tiltIn, tiltIn] : tiltIn;
   const twist = o.twist ?? DEFAULTS.twist;
@@ -494,7 +491,6 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       flare,
       wobble,
       wilt: u,
-      rhizoids: rhizoidCount,
       variance: o.stemVariance ?? DEFAULTS.stemVariance,
       rand: rng.stream(i, "stem"),
     });
@@ -508,20 +504,6 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     growEndAll = Math.max(growEndAll, growEnd);
 
     // ---- Stem ----
-    const footStyle = grow
-      ? style({
-          "transform-origin": origin(base),
-          "animation-delay": at(delay),
-          "animation-duration": sec(dur * 0.3),
-        })
-      : undefined;
-    const rhizoidMarkup = stem.rhizoids.length
-      ? `<g${attrs({ class: grow ? `${p}-foot` : undefined, style: footStyle, fill: "none", stroke: stemColor, "stroke-linecap": "round" })}>` +
-        stem.rhizoids
-          .map((rz) => `<path${attrs({ d: rz.d, "stroke-width": rz.width })}/>`)
-          .join("") +
-        `</g>`
-      : "";
     const stemAttrs = {
       class: `${p}-stem`,
       fill: stemColor,
@@ -570,7 +552,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     const glyphGroup = `<g${attrs({ class: grow ? `${p}-pop` : undefined, style: popStyle })}>${glyphMarkup}</g>`;
 
     // ---- Sway ----
-    let inner = rhizoidMarkup + stemMarkup + glyphGroup;
+    let inner = stemMarkup + glyphGroup;
     if (sway) {
       // One shared period with the phase following position along the path: a slow travelling
       // wave, so neighbours move nearly together instead of swinging into each other.

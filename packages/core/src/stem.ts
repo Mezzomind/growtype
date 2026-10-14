@@ -28,7 +28,6 @@ export interface StemParams {
   wobble: number;
   /** 0–1 wilt intensity: thins the stem and adds kinks. */
   wilt: number;
-  rhizoids: number;
   /** 0–1+: how much each stalk's shape differs from the others. */
   variance: number;
   rand: () => number;
@@ -42,8 +41,6 @@ export interface StemGeometry {
   shapes: string[];
   /** The stem's centreline (used to mask the grow animation). */
   centerline: string;
-  /** Hair-like root filaments around the base (stroked). */
-  rhizoids: Array<{ d: string; width: number }>;
   /** Furthest any part of the stem strays from its centreline, for sizing masks. */
   maxHalfWidth: number;
   /** Per-stalk tone variation. */
@@ -212,28 +209,9 @@ export function buildStem(p: StemParams): StemGeometry {
     `L${fmt(base.x)} ${fmt(base.y)}` +
     `C${fmt(c1.x)} ${fmt(c1.y)} ${fmt(c2.x)} ${fmt(c2.y)} ${fmt(tip.x)} ${fmt(tip.y)}`;
 
-  // Rhizoids: thin hairs creeping out along the path from the foot.
-  const rhizoids: StemGeometry["rhizoids"] = [];
-  const count = Math.max(0, Math.round(p.rhizoids * spread(0.5) + (rand() - 0.5) * 1.5));
-  for (let i = 0; i < count; i++) {
-    // Favour the side the foot creeps towards.
-    const dir = rand() < 0.5 - asym * 0.5 ? -1 : 1;
-    const reachR = half * (2 + flare * (1.2 + rand() * 1.6));
-    const startPt = add(base, scale(p.tangent, dir * half * flare * (0.3 + rand() * 0.4)));
-    const ang = dir * (60 + rand() * 50); // degrees from the normal
-    const dirVec = rotate(normal, ang);
-    const mid = add(startPt, scale(rotate(dirVec, (rand() - 0.5) * 50), reachR * 0.5));
-    const end = add(startPt, scale(rotate(dirVec, (rand() - 0.5) * 30 + dir * 25), reachR));
-    rhizoids.push({
-      d: smoothPath([startPt, mid, end]),
-      width: Math.max(0.3, half * thin * (0.35 + rand() * 0.3)),
-    });
-  }
-
   return {
     shapes,
     centerline,
-    rhizoids,
     maxHalfWidth: Math.max(maxHalf + Math.abs(bowAmp) + bendAmp, reach),
     opacity: 1 - v * 0.22 * rand(),
   };

@@ -1,7 +1,7 @@
 # @growtype/core
 
 Grow text out of an SVG path. Each character sprouts on a wobbly, mould-spore-like stalk with a
-flared, root-splayed foot, randomly askew, optionally animated (sprouting and idle sway) and
+flared foot, randomly askew, optionally animated (sprouting and idle sway) and
 optionally wilting.
 
 ```ts
@@ -97,7 +97,6 @@ don't apply to them.
 | `stemThickness`                           | `2.2`              | Narrowest stalk width.                                                                                                                                                                                                                                                                                                                                  |
 | `flare`                                   | `3`                | Foot width relative to the stalk.                                                                                                                                                                                                                                                                                                                       |
 | `wobble`                                  | `0.6`              | Organic bends and width irregularity.                                                                                                                                                                                                                                                                                                                   |
-| `rhizoids`                                | `3`                | Root hairs per foot.                                                                                                                                                                                                                                                                                                                                    |
 | `stemVariance`                            | `0.7`              | How much stalks differ: thickness, foot size and lopsidedness, C/S bows, nodal swellings, knob size, tone, and the odd side branch with a spore head. `0` makes them uniform.                                                                                                                                                                           |
 | `tilt`                                    | `18`               | Lean range in degrees: `±n` or `[min, max]`.                                                                                                                                                                                                                                                                                                            |
 | `tiltCoherence`                           | `0.6`              | 0–1, how much neighbours lean together (reduces collisions).                                                                                                                                                                                                                                                                                            |

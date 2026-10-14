@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@growtype/core": "workspace:*",
+    "@growtype/react": "workspace:*",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

@@ -224,6 +224,38 @@ button:disabled {
   color: #a8321e;
 }
 
+.config {
+  display: grid;
+  gap: 8px;
+}
+.config-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.config-head h2 {
+  font-size: 15px;
+  margin: 0 6px 0 0;
+}
+.config-head .segmented {
+  grid-column: auto;
+}
+.config-body {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0;
+  overflow: auto;
+  max-height: 360px;
+  white-space: pre;
+}
+.note {
+  color: var(--muted);
+  margin: 0;
+}
+
 .snippet summary {
   cursor: pointer;
   color: var(--muted);

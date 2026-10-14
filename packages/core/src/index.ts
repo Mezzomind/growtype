@@ -13,7 +13,7 @@ export type {
   AnchorMode,
   WiltStage,
 } from "./options.ts";
-export { WILT_STAGES } from "./options.ts";
+export { WILT_STAGES, wiltIndex } from "./options.ts";
 export {
   loadFont,
   parseFont,
