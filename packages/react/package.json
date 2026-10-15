@@ -9,8 +9,21 @@
     "text-on-path",
     "typography"
   ],
+  "homepage": "https://github.com/courdek/growtype/tree/main/packages/react#readme",
+  "bugs": {
+    "url": "https://github.com/courdek/growtype/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/courdek/growtype.git",
+    "directory": "packages/react"
+  },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "type": "module",
   "sideEffects": false,
@@ -19,7 +32,8 @@
     "./package.json": "./package.json"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
     "build": "vp pack",
