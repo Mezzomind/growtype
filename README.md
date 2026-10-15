@@ -2,7 +2,7 @@
 
 Letters that grow out of a path like little mould spores.
 
-**[Playground](https://courdek.github.io/growtype/)** · [`@growtype/core`](packages/core) ·
+**[Playground](https://mezzomind.github.io/growtype/)** · [`@growtype/core`](packages/core) ·
 [`@growtype/react`](packages/react)
 
 ```sh
@@ -37,16 +37,36 @@ The playground imports the library source directly, so edits to `packages/*/src`
 
 ## Release
 
-Both packages share one version.
+Both packages share one version and publish from GitHub Actions with npm
+[trusted publishing](https://docs.npmjs.com/trusted-publishers): no npm token or one-time password.
+
+### First release (once, by hand)
+
+Trusted publishing can only be configured on packages that already exist, so publish the first
+version from your machine (npm asks for your one-time password):
+
+```sh
+pnpm install && pnpm ready && pnpm release:pack
+npm publish .release/growtype-core-0.1.0.tgz --access public
+npm publish .release/growtype-react-0.1.0.tgz --access public
+```
+
+Then, for **each** package on npmjs.com → the package → **Settings → Trusted publishing**, add
+GitHub Actions with organization `Mezzomind`, repository `growtype`, workflow `release.yml`, and
+allow **npm publish**. A new configuration must be used for a successful publish within 2 days or
+it expires, so set it up when you're about to release.
+
+### Every release after that
 
 1. Bump `version` in `packages/core/package.json` and `packages/react/package.json`, and add the
    changes to each `CHANGELOG.md`.
 2. Merge to `main`, then tag and push: `git tag v0.1.1 && git push origin v0.1.1`.
 3. The **Release** workflow checks the tag matches the versions, runs the full pipeline, publishes
-   both packages to npm with provenance and creates a GitHub release.
+   whichever packages aren't on npm yet (with provenance) and creates the GitHub release. To retry,
+   run it manually from the Actions tab with the tag.
 
-One-time setup: add an npm automation token as the `NPM_TOKEN` repository secret, and set
-**Settings → Pages → Source** to “GitHub Actions” so the **Playground** workflow can deploy.
+The playground deploys to GitHub Pages from `main` once **Settings → Pages → Source** is set to
+“GitHub Actions”.
 
 ## License
 
