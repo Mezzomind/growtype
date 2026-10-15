@@ -1,4 +1,4 @@
-import type { WiltStage } from "@growtype/core";
+import type { WiltStage } from "growtype";
 import { FONT_CHOICES } from "./presets.ts";
 
 export type PathSource = { kind: "preset"; name: string } | { kind: "custom"; d: string };

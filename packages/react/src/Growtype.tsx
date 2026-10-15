@@ -1,4 +1,4 @@
-import type { FontInput, GrowtypeOptions, GrowtypeResult } from "@growtype/core";
+import type { FontInput, GrowtypeOptions, GrowtypeResult } from "growtype";
 import {
   type CSSProperties,
   type ReactNode,

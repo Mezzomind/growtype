@@ -1,5 +1,5 @@
-import { WILT_STAGES, pathInputToData, wiltIndex } from "@growtype/core";
-import type { GrowtypeConfig } from "@growtype/react";
+import { WILT_STAGES, pathInputToData, wiltIndex } from "growtype";
+import type { GrowtypeConfig } from "growtype-react";
 import { FONT_CHOICES, PALETTES, PATH_PRESETS } from "./presets.ts";
 import type { Settings } from "./settings.ts";
 
@@ -59,7 +59,7 @@ export function toConfig(s: Settings, pathData: string): GrowtypeConfig {
 
 /** A copy-pasteable React component using the config. */
 export function toReactSnippet(config: GrowtypeConfig): string {
-  return `import { Growtype } from "@growtype/react";
+  return `import { Growtype } from "growtype-react";
 
 const config = ${JSON.stringify(config, null, 2)} as const;
 

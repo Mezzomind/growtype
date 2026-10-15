@@ -2,12 +2,12 @@
 
 Letters that grow out of a path like little mould spores.
 
-**[Playground](https://mezzomind.github.io/growtype/)** · [`@growtype/core`](packages/core) ·
-[`@growtype/react`](packages/react)
+**[Playground](https://mezzomind.github.io/growtype/)** · [`growtype`](packages/core) ·
+[`growtype-react`](packages/react)
 
 ```sh
-npm install @growtype/react   # React component + hooks (includes the core)
-npm install @growtype/core    # framework-free: returns an SVG string
+npm install growtype-react   # React component + hooks (includes the core)
+npm install growtype         # framework-free: returns an SVG string
 ```
 
 Both packages are ESM-only and run in the browser; the core also renders in Node / on the server
@@ -17,8 +17,8 @@ with CSS fonts.
 
 A [Vite+](https://viteplus.dev) monorepo:
 
-- [`packages/core`](packages/core) – `@growtype/core`, the TypeScript library that produces the SVG.
-- [`packages/react`](packages/react) – `@growtype/react`, a `<Growtype>` component and hooks.
+- [`packages/core`](packages/core) – `growtype`, the TypeScript library that produces the SVG.
+- [`packages/react`](packages/react) – `growtype-react`, a `<Growtype>` component and hooks.
 - [`apps/playground`](apps/playground) – a React playground with controls for every option, path
   presets, freehand path drawing, font upload, SVG export, and a Config panel that copies your
   settings as JSON or a ready-made React component (and imports them back).
@@ -47,7 +47,7 @@ version from your machine (npm asks for your one-time password):
 
 ```sh
 pnpm install && pnpm ready && pnpm release:pack
-npm publish .release/growtype-core-0.1.0.tgz --access public
+npm publish .release/growtype-0.1.0.tgz --access public
 npm publish .release/growtype-react-0.1.0.tgz --access public
 ```
 

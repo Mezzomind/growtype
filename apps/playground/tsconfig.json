@@ -18,8 +18,8 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@growtype/core": ["../../packages/core/src/index.ts"],
-      "@growtype/react": ["../../packages/react/src/index.ts"]
+      "growtype": ["../../packages/core/src/index.ts"],
+      "growtype-react": ["../../packages/react/src/index.ts"]
     }
   },
   "include": ["src"]

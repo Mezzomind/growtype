@@ -1,5 +1,5 @@
 {
-  "name": "@growtype/core",
+  "name": "growtype",
   "version": "0.1.0",
   "description": "Grow text out of an SVG path like little mold spores.",
   "keywords": [

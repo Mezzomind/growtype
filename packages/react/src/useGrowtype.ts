@@ -4,7 +4,7 @@ import {
   type GrowtypeResult,
   growtype,
   wiltIndex,
-} from "@growtype/core";
+} from "growtype";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /** Blast settings used when the wilt stage changes (timing and `fromWilt` are filled in for you). */

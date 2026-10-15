@@ -49,14 +49,15 @@ jobs:
       - run: pnpm run release:pack
       - name: Publish to npm
         run: |
-          for pkg in core react; do
-            name="@growtype/$pkg"
-            version=$(node -p "require('./packages/$pkg/package.json').version")
+          for dir in packages/core packages/react; do
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "$name@$version is already on npm, skipping"
               continue
             fi
-            npm publish ".release/growtype-$pkg-$version.tgz" --access public
+            # pnpm pack names tarballs <name>-<version>.tgz (scope "@a/b" becomes "a-b").
+            npm publish ".release/$(echo "$name" | sed 's#^@##; s#/#-#')-$version.tgz" --access public
           done
       - name: Create GitHub release
         run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
