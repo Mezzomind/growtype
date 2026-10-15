@@ -5,4 +5,4 @@ export type { BlastOnWiltChange, UseGrowtypeResult, UseGrowtypeSettings } from "
 export { useFont, preloadFont } from "./font.ts";
 export type { FontState } from "./font.ts";
 // Re-export the core so apps only need one import.
-export * from "@growtype/core";
+export * from "growtype";

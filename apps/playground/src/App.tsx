@@ -8,8 +8,8 @@ import {
   loadFont,
   parseFont,
   pathInputToData,
-} from "@growtype/core";
-import { type GrowtypeConfig, useGrowtype } from "@growtype/react";
+} from "growtype";
+import { type GrowtypeConfig, useGrowtype } from "growtype-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fromConfig, toConfig, toReactSnippet } from "./config.ts";
 import { Color, Section, Segmented, Select, Slider, Toggle } from "./controls.tsx";

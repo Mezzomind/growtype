@@ -17,7 +17,7 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "paths": {
-      "@growtype/core": ["../core/src/index.ts"]
+      "growtype": ["../core/src/index.ts"]
     }
   }
 }

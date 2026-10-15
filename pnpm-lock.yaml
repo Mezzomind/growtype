@@ -56,10 +56,10 @@ importers:
 
   apps/playground:
     dependencies:
-      '@growtype/core':
+      growtype:
         specifier: workspace:*
         version: link:../../packages/core
-      '@growtype/react':
+      growtype-react:
         specifier: workspace:*
         version: link:../../packages/react
       react:
@@ -109,7 +109,7 @@ importers:
 
   packages/react:
     dependencies:
-      '@growtype/core':
+      growtype:
         specifier: workspace:*
         version: link:../core
     devDependencies:

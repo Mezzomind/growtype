@@ -1,15 +1,15 @@
-# @growtype/react
+# growtype-react
 
-React bindings for [`@growtype/core`](../core): text sprouting out of an SVG path.
+React bindings for [`growtype`](../core): text sprouting out of an SVG path.
 
 ```sh
-pnpm add @growtype/react   # re-exports everything from @growtype/core
+pnpm add growtype-react   # re-exports everything from growtype
 ```
 
 ## `<Growtype>`
 
 ```tsx
-import { Growtype } from "@growtype/react";
+import { Growtype } from "growtype-react";
 
 export function Hero({ stage }: { stage: "full" | "wilted" }) {
   return (
@@ -30,7 +30,7 @@ export function Hero({ stage }: { stage: "full" | "wilted" }) {
 }
 ```
 
-It takes every [`@growtype/core` option](../core#options) as a prop, plus:
+It takes every [`growtype` option](../core#options) as a prop, plus:
 
 | Prop                 | Default   |                                                                                                                                                                       |
 | -------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

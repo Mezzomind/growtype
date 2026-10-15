@@ -1,5 +1,5 @@
 {
-  "name": "@growtype/react",
+  "name": "growtype-react",
   "version": "0.1.0",
   "description": "React component and hooks for growtype: text sprouting out of an SVG path.",
   "keywords": [
@@ -42,7 +42,7 @@
     "prepublishOnly": "vp run build"
   },
   "dependencies": {
-    "@growtype/core": "workspace:*"
+    "growtype": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

@@ -1,4 +1,4 @@
-import { type GrowFont, loadFont } from "@growtype/core";
+import { type GrowFont, loadFont } from "growtype";
 import { useEffect, useState } from "react";
 
 const pending = new Map<string, Promise<GrowFont>>();

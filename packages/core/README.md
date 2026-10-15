@@ -1,11 +1,11 @@
-# @growtype/core
+# growtype
 
 Grow text out of an SVG path. Each character sprouts on a wobbly, mould-spore-like stalk with a
 flared foot, randomly askew, optionally animated (sprouting and idle sway) and
 optionally wilting.
 
 ```ts
-import { loadFont, renderGrowtype } from "@growtype/core";
+import { loadFont, renderGrowtype } from "growtype";
 
 const font = await loadFont("/fonts/YoungSerif-Regular.ttf"); // or a CSS family: "Georgia"
 
