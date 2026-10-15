@@ -16,7 +16,11 @@ if (versions.size !== 1) {
   process.exit(1);
 }
 const [version] = versions;
-const tag = process.argv[2] ?? process.env.GITHUB_REF_NAME;
+// An explicit argument, or the ref GitHub Actions is building – but only when that ref is a tag
+// (on PRs and branches GITHUB_REF_NAME is e.g. "1/merge" or "main").
+const tag =
+  process.argv[2] ??
+  (process.env.GITHUB_REF_TYPE === "tag" ? process.env.GITHUB_REF_NAME : undefined);
 if (tag && tag !== `v${version}`) {
   console.error(`Tag ${tag} does not match package version ${version} (expected v${version}).`);
   process.exit(1);
