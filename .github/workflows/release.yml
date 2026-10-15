@@ -1,35 +1,64 @@
 name: Release
 
-# Push a tag matching the package versions (e.g. v0.1.0) to publish both packages to npm.
+# Publishes both packages to npm with trusted publishing (OIDC): no npm token or one-time
+# password is involved. Runs when a vX.Y.Z tag is pushed, or manually for an existing tag
+# (Actions → Release → Run workflow), e.g. to retry a failed release.
+#
+# One-time setup per package on npmjs.com (Package → Settings → Trusted publishing):
+# GitHub Actions, organization "Mezzomind", repository "growtype", workflow "release.yml",
+# and allow "npm publish". Trusted publishing can only be set up on a package that already
+# exists, so the very first version is published by hand (see README → Release).
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release (e.g. v0.1.1)
+        required: true
 
 permissions:
   contents: write # create the GitHub release
-  id-token: write # npm provenance
+  id-token: write # npm trusted publishing (OIDC) and provenance
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm >= 11.5.1; Node 22 ships npm 10.
+      - run: npm install -g npm@^11.5.1
       - run: pnpm install --frozen-lockfile
       - name: Check the tag matches the package versions
-        run: pnpm run release:check "$GITHUB_REF_NAME"
+        run: pnpm run release:check "$TAG"
       - run: pnpm run ready
-      # pnpm swaps workspace:* for the real version; core publishes before react.
+      # pnpm pack swaps workspace:* and catalog: for real versions; npm then publishes the tarballs.
+      - run: pnpm run release:pack
       - name: Publish to npm
-        run: pnpm -r --filter "./packages/*" publish --access public --provenance --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pkg in core react; do
+            name="@growtype/$pkg"
+            version=$(node -p "require('./packages/$pkg/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already on npm, skipping"
+              continue
+            fi
+            npm publish ".release/growtype-$pkg-$version.tgz" --access public
+          done
       - name: Create GitHub release
-        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
         env:
           GH_TOKEN: ${{ github.token }}

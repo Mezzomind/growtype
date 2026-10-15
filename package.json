@@ -9,17 +9,11 @@
     "dev": "vp run playground#dev",
     "build": "vp run -r build",
     "test": "vp run -r test",
-    "release:check": "node scripts/check-release.mjs"
+    "release:check": "node scripts/check-release.mjs",
+    "release:pack": "rm -rf .release && pnpm --filter \"./packages/*\" pack --pack-destination .release"
   },
   "devDependencies": {
     "vite-plus": "catalog:"
-  },
-  "devEngines": {
-    "packageManager": {
-      "name": "pnpm",
-      "version": "10.28.0",
-      "onFail": "download"
-    }
   },
   "engines": {
     "node": ">=22.18.0"

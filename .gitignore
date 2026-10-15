@@ -34,3 +34,6 @@ dist-ssr
 
 # Declarations are only generated into dist
 packages/*/src/**/*.d.ts
+
+# Packed tarballs for publishing
+.release
