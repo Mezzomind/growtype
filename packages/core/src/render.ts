@@ -110,13 +110,11 @@ function css(p: string): string {
     `@keyframes ${p}-sway{0%,100%{transform:rotate(0)}25%{transform:rotate(var(--a))}75%{transform:rotate(calc(var(--a) * -1))}}`,
     `@keyframes ${p}-gust{0%{transform:rotate(0)}10%{transform:rotate(var(--g))}22%{transform:rotate(calc(var(--g) * -.35))}32%{transform:rotate(calc(var(--g) * .12))}42%,100%{transform:rotate(0)}}`,
     `@keyframes ${p}-drift{0%,100%{transform:translate(0,0)}50%{transform:translate(var(--dx),var(--dy))}}`,
-    `.${p} .${p}-blast,.${p} .${p}-ring,.${p} .${p}-debris,.${p} .${p}-push{transform-box:view-box}`,
+    `.${p} .${p}-blast,.${p} .${p}-debris,.${p} .${p}-push{transform-box:view-box}`,
     `.${p}-blast{animation:${p}-blast 1.6s ease-out}`,
-    `.${p}-ring{animation:${p}-ring 1s linear both}`,
     `.${p}-debris{animation:${p}-debris 1s cubic-bezier(.2,.7,.3,1) both}`,
     `.${p}-push{animation:${p}-push 1.4s cubic-bezier(.2,.7,.3,1)}`,
     `@keyframes ${p}-blast{0%{transform:rotate(0)}8%{transform:rotate(var(--k))}24%{transform:rotate(calc(var(--k) * -.55))}40%{transform:rotate(calc(var(--k) * .3))}58%{transform:rotate(calc(var(--k) * -.14))}76%{transform:rotate(calc(var(--k) * .05))}100%{transform:rotate(0)}}`,
-    `@keyframes ${p}-ring{0%{transform:scale(.01);opacity:0}6%{opacity:1}70%{opacity:.7}100%{transform:scale(var(--r));opacity:0}}`,
     `@keyframes ${p}-debris{0%{transform:translate(0,0);opacity:0}6%{opacity:.9}100%{transform:translate(var(--dx),var(--dy));opacity:0}}`,
     `@keyframes ${p}-push{0%{transform:translate(0,0)}12%{transform:translate(var(--px),var(--py))}100%{transform:translate(0,0)}}`,
     `@media (prefers-reduced-motion:reduce){.${p} *{animation:none!important}}`,
@@ -497,8 +495,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     };
   });
 
-  // ---- Blast waves: when each front reaches each sprout ----
-  const shocks: Array<{ origin: Point; reach: number }> = [];
+  // ---- Blast waves: when each (invisible) front reaches each sprout ----
   if (poses.length) {
     const xs = poses.map((q) => q.base.x);
     const midY =
@@ -510,7 +507,6 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       };
       const reach = Math.max(...poses.map((q) => dist(origin, q.base)), 1);
       b.hits = poses.map((q) => b.at + (b.duration * dist(origin, q.base)) / reach);
-      shocks.push({ origin, reach });
     }
     if (blast) poses.forEach((q, k) => (q.hit = blast.hits[k]!));
   }
@@ -560,7 +556,6 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     settle(wilt).forEach((pl, k) => Object.assign(poses[k]!, pl));
   }
 
-  const defs: string[] = [];
   const charsOut: Array<{ s: number; base: Point; inner: string }> = [];
   const sporesOut: string[] = [];
   const debrisOut: string[] = [];
@@ -814,37 +809,10 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     })}/>`;
   }
 
-  // ---- Blast shock rings ----
-  let blastMarkup = "";
-  blasts.forEach((b, n) => {
-    const shock = shocks[n];
-    if (!shock) return;
-    const color = b.color ?? stemColor;
-    const id = n ? `${p}-shock${n}` : `${p}-shock`;
-    defs.push(
-      `<radialGradient id="${id}">` +
-        `<stop offset="0" stop-color="${esc(color)}" stop-opacity="0"/>` +
-        `<stop offset=".72" stop-color="${esc(color)}" stop-opacity="0"/>` +
-        `<stop offset=".94" stop-color="${esc(color)}" stop-opacity=".35"/>` +
-        `<stop offset="1" stop-color="${esc(color)}" stop-opacity="0"/>` +
-        `</radialGradient>`,
-    );
-    const { origin: o0, reach } = shock;
-    blastMarkup +=
-      `<g${attrs({
-        class: `${p}-ring`,
-        style: style({
-          "--r": String(fmt(reach * 1.15)),
-          "transform-origin": origin(o0),
-          "animation-delay": at(b.at),
-          "animation-duration": sec(b.duration * 1.15),
-        }),
-      })}>` +
-      `<circle${attrs({ cx: o0.x, cy: o0.y, r: 1, fill: `url(#${id})` })}/>` +
-      `<circle${attrs({ cx: o0.x, cy: o0.y, r: 1, fill: "none", stroke: color, "stroke-width": 1.5, "vector-effect": "non-scaling-stroke", opacity: 0.6 })}/>` +
-      `</g>`;
-  });
-  if (debrisOut.length) blastMarkup += `<g class="${p}-debris-layer">${debrisOut.join("")}</g>`;
+  // ---- Blast debris ----
+  const blastMarkup = debrisOut.length
+    ? `<g class="${p}-debris-layer">${debrisOut.join("")}</g>`
+    : "";
 
   const title = o.title === false ? null : (o.title ?? o.text);
   const animated = Boolean(grow || sway || blast);
@@ -860,7 +828,6 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     })}>` +
     (title ? `<title>${esc(title)}</title>` : "") +
     (animated ? `<style>${css(p)}</style>` : "") +
-    (defs.length ? `<defs>${defs.join("")}</defs>` : "") +
     (o.background ? `<rect width="100%" height="100%" fill="${esc(o.background)}"/>` : "") +
     pathMarkup +
     `<g class="${p}-chars">${charGroups.join("")}</g>` +

@@ -11,10 +11,9 @@ const opts = {
 };
 
 describe("blast wave", () => {
-  test("emits a shock ring, debris and a knock-back per sprout", () => {
+  test("emits debris and a knock-back per sprout, but no visible wave", () => {
     const r = growtype({ ...opts, blast: { direction: "left" } });
-    expect(r.svg).toMatch(/class="[a-z0-9]+-ring"/);
-    expect(r.svg).toContain("radialGradient");
+    expect(r.svg).not.toMatch(/-ring|radialGradient|<defs>/);
     expect(r.svg.match(/-blast"/g)?.length).toBe(r.characters.length);
     expect(r.svg.match(/-debris"/g)?.length).toBe(r.characters.length * 3);
     expect(r.svg).toContain("@keyframes");
@@ -72,13 +71,12 @@ describe("blast wave", () => {
       const chained = growtype({ ...tilted, wilt: "full", blast: second, timeOffset: t });
       const a = pose(shown);
       pose(chained).forEach((row, i) => row.forEach((v, j) => expect(v).toBeCloseTo(a[i]![j]!, 6)));
-      // Both shock rings and both knock-backs play.
-      expect(chained.svg.match(/-ring"/g)?.length).toBe(2);
+      // Both knock-backs play.
       expect(chained.svg.match(/-blast"/g)?.length).toBe(chained.characters.length * 2);
     }
   });
 
   test("no blast markup unless requested", () => {
-    expect(growtype(opts).svg).not.toContain("-ring");
+    expect(growtype(opts).svg).not.toMatch(/-blast"|-debris"/);
   });
 });

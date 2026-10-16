@@ -16,6 +16,9 @@ const base: GrowtypeProps = {
   height: 200,
 };
 
+/** How many blasts a rendered frame carries: each knocks every sprout of "spores" back once. */
+const blastsIn = (svg: string) => (svg.match(/-blast"/g)?.length ?? 0) / 6;
+
 let host: HTMLDivElement;
 beforeEach(() => {
   host = document.createElement("div");
@@ -66,15 +69,15 @@ describe("<Growtype> in the browser", () => {
       );
     }
     await mount(<App />);
-    expect(frames.some((f) => /-ring"/.test(f))).toBe(false);
+    expect(frames.some((f) => blastsIn(f) > 0)).toBe(false);
     // act() keeps flushing the per-frame re-renders until the blast has played out.
     await act(async () => setWilt("wilted"));
-    const during = frames.filter((f) => /-ring"/.test(f));
+    const during = frames.filter((f) => blastsIn(f) > 0);
     expect(during.length).toBeGreaterThan(1);
     // Knocked towards the left, away from a blast coming from the right.
     expect(during[0]).toMatch(/--k:-[\d.]+deg/);
     // Once it's over the transient blast markup is gone.
-    expect(host.innerHTML).not.toMatch(/-ring"/);
+    expect(blastsIn(host.innerHTML)).toBe(0);
   });
 
   test("the new wilt never shows before its blast does", async () => {
@@ -96,7 +99,7 @@ describe("<Growtype> in the browser", () => {
     await act(async () => setWilt("wilted"));
     // The first render after the change already carries the blast, rather than snapping every
     // sprout to the new wilt for a frame before the wave sets off.
-    expect(frames[1]).toMatch(/-ring"/);
+    expect(blastsIn(frames[1]!)).toBe(1);
   });
 
   test("a blast fired mid-blast carries on from where the first left off", async () => {
@@ -114,8 +117,8 @@ describe("<Growtype> in the browser", () => {
     act(() => setWilt("wilted"));
     act(() => setWilt("full"));
     await act(async () => new Promise((r) => setTimeout(r, 100)));
-    // Both waves play: the second interrupts the first instead of replacing it.
-    expect(frames.some((f) => f.match(/-ring"/g)?.length === 2)).toBe(true);
+    // Both blasts play: the second interrupts the first instead of replacing it.
+    expect(frames.some((f) => blastsIn(f) === 2)).toBe(true);
   }, 10000);
 
   test("no blast when blastOnWiltChange is off", async () => {
@@ -129,7 +132,7 @@ describe("<Growtype> in the browser", () => {
     await mount(<App />);
     await act(async () => setWilt("wilted"));
     expect(frames.length).toBe(2);
-    expect(frames.some((f) => /-ring"/.test(f))).toBe(false);
+    expect(frames.some((f) => blastsIn(f) > 0)).toBe(false);
   });
 
   test("ref exposes replay, blast and toSVG", async () => {
@@ -138,9 +141,9 @@ describe("<Growtype> in the browser", () => {
     await mount(<Growtype {...base} ref={ref} grow onRender={(r) => frames.push(r.svg)} />);
     expect(ref.current!.toSVG()).toMatch(/^<svg /);
     await act(async () => ref.current!.blast({ direction: "left", duration: 0.2, recoil: 0.2 }));
-    expect(frames.some((f) => /-ring"/.test(f) && /--k:[\d.]+deg/.test(f))).toBe(true);
+    expect(frames.some((f) => blastsIn(f) > 0 && /--k:[\d.]+deg/.test(f))).toBe(true);
     // The exported SVG never includes the transient blast.
-    expect(ref.current!.toSVG()).not.toMatch(/-ring"/);
+    expect(blastsIn(ref.current!.toSVG())).toBe(0);
     const before = host.querySelector("svg");
     await act(async () => ref.current!.replay());
     expect(host.querySelector("svg")).not.toBe(before);

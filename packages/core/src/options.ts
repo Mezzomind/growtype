@@ -51,7 +51,7 @@ export interface BlastOptions {
   recoil?: number;
   /** Debris particles thrown off each sprout. Default 3. */
   debris?: number;
-  /** Colour of the shock ring and debris. Defaults to the stem colour. */
+  /** Colour of the debris. Defaults to the stem colour. */
   color?: string;
   /**
    * The wilt stage before the blast. Each sprout shows this until the front reaches it, then
@@ -168,7 +168,8 @@ export interface GrowtypeOptions {
   /** Idle sway animation. Default false. */
   sway?: boolean | SwayOptions;
   /**
-   * A shock wave sweeping across from the left or right, knocking the sprouts over as it passes.
+   * An invisible shock wave sweeping across from the left or right, knocking the sprouts over as
+   * it passes.
    * Use it when the wilt stage changes (`fromWilt` → `wilt`). Default none.
    */
   blast?: BlastOptions;
