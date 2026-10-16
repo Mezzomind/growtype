@@ -8,6 +8,28 @@ const rectHull = (x1: number, y1: number, x2: number, y2: number): Point[] => [
   { x: x1, y: y2 },
 ];
 
+/**
+ * Glyph caches are keyed by font size, and sizes shrunk to fit are arbitrary fractions, so a
+ * long-lived font would otherwise keep every glyph at every size it was ever drawn at.
+ */
+const GLYPH_CACHE_LIMIT = 2048;
+
+/** Look up a cached glyph, marking it recently used. */
+function cacheGet(cache: Map<string, GlyphInfo>, key: string): GlyphInfo | undefined {
+  const hit = cache.get(key);
+  if (hit) {
+    cache.delete(key);
+    cache.set(key, hit);
+  }
+  return hit;
+}
+
+/** Cache a glyph, evicting the least recently used once the cache is full. */
+function cacheSet(cache: Map<string, GlyphInfo>, key: string, info: GlyphInfo): void {
+  cache.set(key, info);
+  if (cache.size > GLYPH_CACHE_LIMIT) cache.delete(cache.keys().next().value!);
+}
+
 /** How a glyph is drawn in the output SVG. */
 export type GlyphShape =
   | { kind: "path"; d: string }
@@ -82,7 +104,7 @@ export class GrowFont implements FontAdapter {
 
   glyph(char: string, fontSize: number): GlyphInfo {
     const key = `${fontSize}|${char}`;
-    const hit = this.cache.get(key);
+    const hit = cacheGet(this.cache, key);
     if (hit) return hit;
     const g = this.font.charToGlyph(char);
     const unit = fontSize / this.font.unitsPerEm;
@@ -98,7 +120,7 @@ export class GrowFont implements FontAdapter {
       hull: hasInk ? simplifyHull(convexHull(outline), 16) : null,
       shape: { kind: "path", d },
     };
-    this.cache.set(key, info);
+    cacheSet(this.cache, key, info);
     return info;
   }
 
@@ -244,7 +266,7 @@ export class CssFontAdapter implements FontAdapter {
 
   glyph(char: string, fontSize: number): GlyphInfo {
     const key = `${fontSize}|${char}`;
-    const hit = this.cache.get(key);
+    const hit = cacheGet(this.cache, key);
     if (hit) return hit;
     const m = this.measure(char, fontSize);
     let info: GlyphInfo;
@@ -273,7 +295,7 @@ export class CssFontAdapter implements FontAdapter {
         shape: { kind: "text", char, attrs: this.textAttributes(fontSize) },
       };
     }
-    this.cache.set(key, info);
+    cacheSet(this.cache, key, info);
     return info;
   }
 

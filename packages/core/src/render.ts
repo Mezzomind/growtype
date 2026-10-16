@@ -64,13 +64,16 @@ export interface GrowtypeResult {
 }
 
 const esc = (s: string): string =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  /[&<>"]/.test(s)
+    ? s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    : s;
 
 function attrs(a: Record<string, string | number | undefined>): string {
   let out = "";
   for (const [k, v] of Object.entries(a)) {
     if (v === undefined) continue;
-    out += ` ${k}="${esc(typeof v === "number" ? fmt(v) : v)}"`;
+    // Formatted numbers never need escaping.
+    out += ` ${k}="${typeof v === "number" ? fmt(v) : esc(v)}"`;
   }
   return out;
 }
@@ -220,20 +223,29 @@ function resolveOverlaps(poses: Pose[], o: { fontSize: number; stemHalf: number 
   const upright = (q: Pose): Pose => ({ ...q, lean: q.lean0, twist: 0, droop: 0 });
 
   const shapes = poses.map(shapeOf);
-  const pairs: Array<{ i: number; j: number; allowed: number }> = [];
+  const uprights = poses.map((q) => shapeOf(upright(q)));
+  const pairs: Array<{ i: number; j: number; allowed: number; seen: number }> = [];
   for (let i = 0; i < poses.length; i++) {
     for (let j = i + 1; j <= i + 2 && j < poses.length; j++) {
       // Some overlap is inherent (tight kerning, hollows in the path): measure it with both
       // standing straight up, and only correct what leaning and twisting add on top.
-      const inherent = clash(shapeOf(upright(poses[i]!)), shapeOf(upright(poses[j]!)));
-      pairs.push({ i, j, allowed: Math.max(0, inherent + gap) + o.fontSize * 0.02 });
+      const inherent = clash(uprights[i]!, uprights[j]!);
+      pairs.push({ i, j, allowed: Math.max(0, inherent + gap) + o.fontSize * 0.02, seen: -1 });
     }
   }
+  // A pair found clear stays clear until one of its shapes changes: only re-test those that did.
+  // `seen` is the sum of both shapes' versions when the pair was last found clear.
+  const version = poses.map(() => 0);
   for (let iter = 0; iter < 120; iter++) {
     let moved = false;
     for (const pr of pairs) {
+      const v = version[pr.i]! + version[pr.j]!;
+      if (pr.seen === v) continue;
       const excess = clash(shapes[pr.i]!, shapes[pr.j]!) + gap - pr.allowed;
-      if (excess <= 0) continue;
+      if (excess <= 0) {
+        pr.seen = v;
+        continue;
+      }
       moved = true;
       const a = poses[pr.i]!;
       const b = poses[pr.j]!;
@@ -253,6 +265,8 @@ function resolveOverlaps(poses: Pose[], o: { fontSize: number; stemHalf: number 
       }
       shapes[pr.i] = shapeOf(a);
       shapes[pr.j] = shapeOf(b);
+      version[pr.i]++;
+      version[pr.j]++;
     }
     if (!moved) break;
   }
