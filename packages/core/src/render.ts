@@ -7,6 +7,7 @@ import {
   fmt,
   leftNormal,
   lerp,
+  lerpPt,
   polygonOverlap,
   rotate,
   scale,
@@ -128,35 +129,38 @@ interface Pose {
   twist: number;
   /** Wilt intensity 0–1. */
   u: number;
-  /** Droop magnitude in degrees (from wilt); direction is `droopSign`. */
+  /** How far a wilting glyph tips towards the side it slumps to, degrees. */
   droop: number;
-  /** ±1, or in between while a transition blends between two resting placements. */
+  /** The side it slumps to: ±1, or in between while a transition blends two placements. */
   droopSign: number;
   anchorLocal: Point;
   /** Arc length of the stalk's foot. */
   sBase: number;
-  /** Lifts a fallen glyph so it lies on the path rather than through it. */
+  /** The point on the path under the glyph's own place in the text, where it sinks to. */
+  ground: Point;
+  /** Lifts a sunken glyph so it never sits below the path. */
   lift: Point;
 }
 
-/** Add a droop to an angle, but no further than `limit` (or the angle itself, if beyond it). */
-function droopTo(angle: number, droop: number, limit: number): number {
-  const l = Math.max(limit, Math.abs(angle));
-  return clamp(angle + droop, -l, l);
-}
+/** How far a wilting glyph has sunk under its own weight: 0 standing, 1 down on the path. */
+const sagOf = (u: number) => (u > 0 ? u ** 1.2 : u);
 
 function poseGeometry(q: Pose) {
-  // A stalk can droop until it lies along the path, but not through it.
-  const phi = droopTo(q.lean, q.droopSign * q.droop, 90);
-  // The glyph keeps its own lean (not the structural fan-out of a gathered base) relative to the
-  // path under it; the stalk curves to meet it. A wilting glyph nods a little past its stalk.
-  const tipDir = rotate(
-    q.glyphNormal,
-    droopTo(q.lean - q.lean0 + q.twist, q.droopSign * (q.droop + q.u * 10), 105),
+  // Wilting, the glyph sinks under its own weight and the stalk buckles beneath it. It comes to
+  // rest a little to one side of its foot, tipped slightly that way, but still the right way up.
+  // It sinks towards the path under its own place in the text (not its stalk's foot, which may
+  // huddle with its word's), so the letters keep their order and spacing, and stops a little
+  // above it, held up by its buckled stalk.
+  const sag = sagOf(q.u);
+  const standing = add(q.base, scale(rotate(q.normal, q.lean), q.length));
+  const fallen = add(
+    add(q.ground, scale(q.glyphNormal, q.length * 0.2)),
+    scale(rotate(q.glyphNormal, 90), q.droopSign * q.c.advance * 0.15),
   );
-  // A collapsing stalk crumples, so fallen glyphs land near their own foot.
-  const reach = q.length * (1 - 0.5 * q.u);
-  const anchorPt = add(add(q.base, scale(rotate(q.normal, phi), reach)), q.lift);
+  // The glyph keeps its own lean (not the structural fan-out of a gathered base) relative to the
+  // path under it; the stalk curves to meet it.
+  const tipDir = rotate(q.glyphNormal, q.lean - q.lean0 + q.twist + q.droopSign * q.droop);
+  const anchorPt = add(lerpPt(standing, fallen, sag), q.lift);
   return { tipDir, anchorPt, rotation: angleDeg(tipDir) + 90, glyphScale: 1 - 0.1 * q.u };
 }
 
@@ -228,8 +232,6 @@ function resolveOverlaps(poses: Pose[], o: { fontSize: number; stemHalf: number 
   const pairs: Array<{ i: number; j: number; allowed: number; seen: number }> = [];
   for (let i = 0; i < poses.length; i++) {
     for (let j = i + 1; j <= i + 2 && j < poses.length; j++) {
-      // Collapsed sprouts lie where they fall, on top of each other if need be.
-      if (Math.max(poses[i]!.u, poses[j]!.u) > 0.85) continue;
       // Some overlap is inherent (tight kerning, hollows in the path): measure it with both
       // standing straight up, and only correct what leaning and twisting add on top.
       const inherent = clash(uprights[i]!, uprights[j]!);
@@ -314,7 +316,7 @@ function cachedPlacement(key: string, compute: () => Placement[]): Placement[] {
   return hit;
 }
 
-/** Wilting: falls under its own weight, lands, bounces once and settles. 0 → 1. */
+/** Wilting: sinks under its own weight, bottoms out, bounces once and settles. 0 → 1. */
 function fallEase(t: number): number {
   const x = clamp(t, 0, 1);
   if (x < 0.55) return (x / 0.55) ** 2;
@@ -467,12 +469,6 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     return side === "left" ? ln : scale(ln, -1);
   };
 
-  // Sprouts all wilt the same way, like a field flattened by the weather: towards whichever end
-  // of the path has more room, so collapsed glyphs don't fall off its end.
-  const fallForward = sampler.length - layout.end >= layout.start;
-  const fallSign = (normal: Point, tangent: Point) =>
-    (dot(rotate(normal, 90), tangent) > 0 ? 1 : -1) * (fallForward ? 1 : -1);
-
   const poses: Pose[] = visible.map((c) => {
     const i = c.index;
     const r = (ch: string) => rng.value(i, ch);
@@ -510,9 +506,11 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       twist: twist * (r("twist") * 2 - 1),
       u: 0,
       droop: 0,
-      droopSign: fallSign(normal, tangent),
+      // Which side of its foot it slumps to as it wilts.
+      droopSign: r("droop-side") < 0.5 ? -1 : 1,
       anchorLocal,
       sBase,
+      ground: sampler.pointAt(c.s),
       lift: { x: 0, y: 0 },
     };
   });
@@ -538,9 +536,9 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       const r = (ch: string) => rng.value(q.c.index, ch);
       // Per-character jitter fades in with the first stage so fractional wilt tweens smoothly from 0.
       const u = clamp(w / 3 + (r("wilt") - 0.5) * 0.22 * Math.min(1, w), 0, 1);
-      // Droop grows faster than linearly: a nod at the first stage, a heavy stoop at the second,
-      // and collapsed along the path when wilted.
-      return { ...q, u, droop: 90 * u ** 1.25 * (0.92 + 0.16 * r("droop")) };
+      // The glyph tips a little towards the side it slumps to: enough to look wilted, not so
+      // much that it stops being readable.
+      return { ...q, u, droop: (8 + 12 * r("droop")) * u ** 0.8 };
     });
     if (avoidOverlap) resolveOverlaps(settled, { fontSize, stemHalf });
     return settled.map(({ lean, twist, u, droop, droopSign }) => ({
@@ -578,23 +576,23 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     settle(wilt).forEach((pl, k) => Object.assign(poses[k]!, pl));
   }
 
-  // ---- Fallen glyphs lie on the path, not through it ----
+  // ---- Sunken glyphs rest on the path, never through it ----
   const clearance = stemHalf * 1.5;
   for (const q of poses) {
     const weight = clamp((q.u - 0.3) / 0.4, 0, 1);
     if (weight === 0) continue;
     const hull = glyphHull(q);
     if (!hull.length) continue;
-    // The ground under the glyph: the path where the fallen glyph has come to lie.
+    // The ground under the glyph: the path where it has sunk to.
     const { anchorPt } = poseGeometry(q);
-    const sGround = q.sBase + dot(sub(anchorPt, q.base), q.tangent);
+    const sGround = q.c.s + dot(sub(anchorPt, q.ground), q.tangent);
     const ground = sampler.pointAt(sGround);
     const up = normalAt(sGround);
     const lowest = Math.min(...hull.map((h) => dot(sub(h, ground), up)));
     if (lowest < clearance) q.lift = scale(up, (clearance - lowest) * weight);
   }
 
-  const charsOut: Array<{ s: number; base: Point; inner: string }> = [];
+  const charsOut: Array<{ s: number; base: Point; inner: string; calm: number }> = [];
   const sporesOut: string[] = [];
   const placed: PlacedCharacter[] = [];
   let growEndAll = 0;
@@ -609,13 +607,15 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     const overlap = Math.min(thickness * shrink * 1.4, fontSize * 0.08);
     const tip = add(anchorPt, scale(tipDir, overlap));
 
-    // A drooping stalk leaves the path already leaning into its fall, so a collapsed one lies
-    // along the path instead of arching up off it.
-    const fall = clamp(q.droopSign * q.droop, -90, 90) * 0.8;
+    // Under a sinking glyph the stalk buckles, bowing out (and up, never into the ground) away
+    // from the side the glyph tips to.
+    const sag = sagOf(u);
     const stem = buildStem({
       base,
       normal,
-      leave: fall ? rotate(normal, fall) : normal,
+      ...(sag > 0 && {
+        buckle: scale(rotate(normal, -q.droopSign * 55), sag * q.length * 0.45),
+      }),
       tangent,
       tip,
       tipDir,
@@ -685,12 +685,14 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
 
     // ---- Sway ----
     let inner = stemMarkup + glyphGroup;
-    if (sway) {
+    // Wilting stalks stiffen, and wilted ones are still.
+    const calm = clamp(1 - u / 0.85, 0, 1);
+    if (sway && calm > 0) {
       // One shared period with the phase following position along the path: a slow travelling
       // wave, so neighbours move nearly together instead of swinging into each other.
       const period = sway.period;
       const phase = ((c.s / (fontSize * 10)) * period + r("sway-phase") * period * 0.08) % period;
-      const amp = sway.amplitude * (0.8 + 0.4 * r("sway-amp"));
+      const amp = sway.amplitude * (0.8 + 0.4 * r("sway-amp")) * calm;
       // Start on a beat of this sprout's phase, but never before it has finished growing.
       const startAfter = grow ? growEnd : 0;
       const swayDelay =
@@ -705,7 +707,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
         }),
       })}>${inner}</g>`;
     }
-    charsOut.push({ s: c.s, base, inner });
+    charsOut.push({ s: c.s, base, inner, calm });
 
     // ---- Spores ----
     if (spores) {
@@ -767,12 +769,12 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
 
   // ---- Assemble characters (with optional travelling gust) ----
   const charGroups = charsOut.map((c) => {
-    if (!wave) return `<g class="${p}-c">${c.inner}</g>`;
+    if (!wave || !c.calm) return `<g class="${p}-c">${c.inner}</g>`;
     const gustDelay = growEndAll + (c.s / sampler.length) * wave.travel;
     return `<g class="${p}-c"><g${attrs({
       class: `${p}-gust`,
       style: style({
-        "--g": `${fmt(wave.amplitude)}deg`,
+        "--g": `${fmt(wave.amplitude * c.calm)}deg`,
         "transform-origin": origin(c.base),
         "animation-duration": sec(Math.max(wave.period, wave.travel * 0.5)),
         "animation-delay": at(gustDelay),

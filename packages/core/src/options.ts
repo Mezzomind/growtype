@@ -40,8 +40,8 @@ export interface SwayOptions {
 
 /**
  * An animated change of wilt stage. Each sprout moves from where it was to its new pose in turn
- * along the path: wilting, it falls and lands with a small bounce; recovering, it springs back
- * up, overshoots a little and settles. Evaluated at `timeOffset`, so re-render while it plays.
+ * along the path: wilting, it sinks under its own weight and settles with a small bounce;
+ * recovering, it springs back up, overshoots a little and settles. Evaluated at `timeOffset`, so re-render while it plays.
  */
 export interface WiltTransition {
   /** The wilt stage it changes from (to `wilt`). */
@@ -154,9 +154,10 @@ export interface GrowtypeOptions {
   /** Seed for all randomness. Same seed + options ⇒ identical SVG. Default 1. */
   seed?: number | string;
   /**
-   * Wilt stage: a named stage or 0 (full) – 3 (wilted). Sprouts droop further at each stage;
-   * wilted, the stalks collapse and the glyphs lie dead on the path. Fractions are allowed for
-   * in-between poses. Default `full`.
+   * Wilt stage: a named stage or 0 (full) – 3 (wilted). Glyphs sink lower at each stage on
+   * buckling stalks, tipping a little to one side or the other but staying readable; wilted, they
+   * rest just above the path and no longer sway. Fractions are allowed for in-between poses.
+   * Default `full`.
    */
   wilt?: WiltStage | number;
 

@@ -35,7 +35,7 @@ It takes every [`growtype` option](../core#options) as a prop, plus:
 | -------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `fontUrl`            | –         | Font file (TTF / OTF / WOFF) to load and embed as glyph outlines. Cached and shared between components.                                                                       |
 | `font`               | `"serif"` | Alternatively a loaded font (`await loadFont(url)`), a CSS family, or `{ family, weight, style }`.                                                                            |
-| `wiltTransition`     | `true`    | Animate each change of `wilt`: sprouts fall (or spring back up) one after another along the path. `{ duration, stagger, direction }` to tune it, `false` to change instantly. |
+| `wiltTransition`     | `true`    | Animate each change of `wilt`: sprouts sink (or spring back up) one after another along the path. `{ duration, stagger, direction }` to tune it, `false` to change instantly. |
 | `restartOnChange`    | `false`   | Restart animations when props change. By default they continue where they are, so changing props mid-animation never jumps.                                                   |
 | `responsive`         | `true`    | Scale to the container's width, keeping the aspect ratio.                                                                                                                     |
 | `fallback`           | `null`    | Rendered while `fontUrl` loads.                                                                                                                                               |

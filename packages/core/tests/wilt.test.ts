@@ -20,35 +20,48 @@ const expectSamePose = (a: Result, b: Result) => {
   const pb = pose(b);
   pose(a).forEach((row, i) => row.forEach((v, j) => expect(v).toBeCloseTo(pb[i]![j]!, 6)));
 };
-const meanDroop = (r: Result) =>
-  r.characters.reduce((acc, c) => acc + Math.abs(c.rotation), 0) / r.characters.length;
+/** How high each glyph's anchor stands above the (straight) path. */
+const heights = (r: Result) => r.characters.map((c) => PATH_Y - c.tip.y);
+const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 describe("wilt stages", () => {
-  test("each stage droops further than the last", () => {
-    const droops = WILT_STAGES.map((wilt) => meanDroop(growtype({ ...opts, wilt })));
-    for (let i = 1; i < droops.length; i++) expect(droops[i]).toBeGreaterThan(droops[i - 1]! + 10);
+  test("each stage sinks lower than the last", () => {
+    const h = WILT_STAGES.map((wilt) => mean(heights(growtype({ ...opts, wilt }))));
+    for (let i = 1; i < h.length; i++) expect(h[i]).toBeLessThan(h[i - 1]! - 4);
   });
 
-  test("wilted, every glyph has fallen the same way and lies on the path", () => {
+  test("wilted, glyphs sink to just above the path but stay readable", () => {
+    const full = growtype(opts);
     const r = growtype({ ...opts, wilt: "wilted" });
-    const sides = new Set(r.characters.map((c) => Math.sign(c.rotation)));
-    expect(sides.size).toBe(1);
+    const stalk = mean(heights(full));
     for (const c of r.characters) {
-      // Lying on its side…
-      expect(Math.abs(Math.abs(c.rotation) - 90)).toBeLessThan(20);
-      // …resting on the path, not floating above it or sunk through it.
-      const lowest = Math.max(...c.outline.map((p) => p.y));
-      expect(lowest).toBeLessThanOrEqual(PATH_Y + 0.5);
-      expect(lowest).toBeGreaterThan(PATH_Y - 12);
+      // Still roughly upright…
+      expect(Math.abs(c.rotation)).toBeLessThan(40);
+      // …low down, held up by a buckled stalk, and never sunk through the path.
+      expect(PATH_Y - c.tip.y).toBeLessThan(stalk * 0.5);
+      expect(Math.max(...c.outline.map((p) => p.y))).toBeLessThanOrEqual(PATH_Y + 0.5);
     }
+    // In the same order as the text.
+    const xs = r.characters.map((c) => c.tip.x);
+    expect(xs).toEqual([...xs].sort((a, b) => a - b));
   });
 
-  test("collapsed glyphs fall towards the end of the path with more room", () => {
-    const atStart = growtype({ ...opts, wilt: "wilted", justify: "start" });
-    const atEnd = growtype({ ...opts, wilt: "wilted", justify: "end" });
-    // Falling towards the path's end (+x) rotates clockwise; towards its start, anticlockwise.
-    expect(atStart.characters.every((c) => c.tip.x > c.base.x)).toBe(true);
-    expect(atEnd.characters.every((c) => c.tip.x < c.base.x)).toBe(true);
+  test("glyphs slump a little to one side or the other, at random", () => {
+    const full = growtype(opts).characters;
+    const wilted = growtype({ ...opts, wilt: "wilted" }).characters;
+    const tips = wilted.map((c, i) => Math.sign(c.rotation - full[i]!.rotation));
+    expect(new Set(tips)).toEqual(new Set([-1, 1]));
+  });
+
+  test("wilted sprouts stop swaying", () => {
+    const sway = { wave: true };
+    const amp = (svg: string) =>
+      Math.max(...[...svg.matchAll(/--a:([\d.]+)deg/g)].map((m) => +m[1]!));
+    const full = growtype({ ...opts, sway }).svg;
+    const slight = growtype({ ...opts, sway, wilt: "slightly-damaged" }).svg;
+    const wilted = growtype({ ...opts, sway, wilt: "wilted" }).svg;
+    expect(amp(slight)).toBeLessThan(amp(full));
+    expect(wilted).not.toMatch(/class="[a-z0-9]+-(sway|gust)"/);
   });
 });
 
@@ -78,7 +91,7 @@ describe("wilt transitions", () => {
     },
   );
 
-  test("wilting sprouts land and bounce; recovering ones spring past upright", () => {
+  test("wilting sprouts land and bounce; recovering ones spring up past upright", () => {
     const track = (from: "full" | "wilted", wilt: "full" | "wilted") =>
       Array.from({ length: 41 }, (_, k) =>
         growtype({
@@ -87,20 +100,17 @@ describe("wilt transitions", () => {
           wiltTransition: { from, at: 0, duration: 1, stagger: 0 },
           timeOffset: k / 40,
         }),
-      ).map((r) => r.characters[0]!.rotation);
+      ).map((r) => heights(r)[0]!);
     const falling = track("full", "wilted");
-    const landed = falling.findIndex((v) => Math.abs(v - falling[40]!) < 0.5);
+    const rest = falling[40]!;
+    const landed = falling.findIndex((h) => h < rest + 0.5);
     // It reaches the ground, rises a little, then settles back.
     expect(landed).toBeGreaterThan(0);
     expect(landed).toBeLessThan(40);
-    const bounce = Math.min(...falling.slice(landed).map((v) => Math.abs(v)));
-    expect(bounce).toBeLessThan(Math.abs(falling[40]!) - 3);
+    expect(Math.max(...falling.slice(landed))).toBeGreaterThan(rest + 1);
     const rising = track("wilted", "full");
-    const upright = rising[40]!;
-    // Swings beyond its upright pose before settling.
-    expect(Math.max(...rising.map((v) => Math.sign(rising[0]!) * (upright - v)))).toBeGreaterThan(
-      2,
-    );
+    // Stands taller than upright before settling.
+    expect(Math.max(...rising)).toBeGreaterThan(rising[40]! + 1);
   });
 
   test("a change made mid-transition picks each sprout up where it is", () => {

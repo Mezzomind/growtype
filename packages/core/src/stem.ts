@@ -17,14 +17,15 @@ export interface StemParams {
   base: Point;
   /** Unit normal of the path at the base (direction of growth). */
   normal: Point;
-  /** Unit direction the stalk leaves the path in (the normal, unless it's drooping). */
-  leave: Point;
+
   /** Unit tangent of the path at the base. */
   tangent: Point;
   /** Where the stem meets the glyph. */
   tip: Point;
   /** Unit direction the glyph's "up" points in. */
   tipDir: Point;
+  /** How far, and which way, a stalk buckling under a sinking glyph bulges out. Default none. */
+  buckle?: Point;
   thickness: number;
   flare: number;
   wobble: number;
@@ -105,26 +106,27 @@ function filament(pts: Point[], rootHalf: number, tipHalf: number, head: number)
  * a side branch carrying a tiny spore head.
  */
 export function buildStem(p: StemParams): StemGeometry {
-  const { base, normal, leave, tip, tipDir, rand } = p;
+  const { base, normal, tip, tipDir, rand } = p;
   const v = Math.max(0, p.variance);
   const spread = (amount: number) => 1 + v * amount * (rand() * 2 - 1);
   const span = Math.hypot(tip.x - base.x, tip.y - base.y);
   const half = (p.thickness / 2) * Math.max(0.35, spread(0.45));
   const flare = p.flare * Math.max(0.2, spread(0.55));
 
-  // Centreline: leave the path along `leave`, arrive at the glyph along tipDir.
-  const c1 = add(base, scale(leave, span * (0.42 + v * (rand() - 0.5) * 0.3)));
-  const c2 = sub(tip, scale(tipDir, span * (0.38 + v * (rand() - 0.5) * 0.3)));
+  // Centreline: leave the path along its normal, arrive at the glyph along tipDir.
+  const buckle = p.buckle ?? { x: 0, y: 0 };
+  const c1 = add(add(base, buckle), scale(normal, span * (0.42 + v * (rand() - 0.5) * 0.3)));
+  const c2 = sub(add(tip, buckle), scale(tipDir, span * (0.38 + v * (rand() - 0.5) * 0.3)));
 
   const bend = waves(rand, 3, 0.6, 1.8);
   const kinks = waves(rand, 3, 3, 6);
   const widthNoise = waves(rand, 3, 1.5, 4);
   const bendAmp = p.wobble * Math.min(span * 0.12, p.thickness * 2.2) * spread(0.6);
-  const kinkAmp = p.wilt * p.thickness * 1.3;
+  const kinkAmp = p.wilt * p.thickness;
   // Large-scale posture: a C-shaped bow or an S-curve, either way.
   const bowAmp = v * span * 0.14 * (rand() * 2 - 1);
   const sCurve = rand() < 0.35;
-  const thin = 1 - 0.4 * p.wilt;
+  const thin = 1 - 0.3 * p.wilt;
   const footLen = (0.08 + 0.06 * rand()) * spread(0.4);
   // Foot asymmetry: one side of the foot creeps further along the path.
   const asym = v * 0.6 * (rand() * 2 - 1);

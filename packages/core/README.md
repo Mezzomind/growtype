@@ -51,13 +51,14 @@ respect `prefers-reduced-motion`), so it animates inline, in an `<img>`, or as a
 
 ## Wilting
 
-`wilt` is a static stage: sprouts nod at `slightly-damaged`, stoop heavily at `damaged`, and at
-`wilted` the stalks collapse and the glyphs lie dead on the path. They all fall the same way,
-towards whichever end of the path has more room.
+`wilt` is a static stage. At each stage the glyphs sink lower under their own weight and their
+stalks buckle beneath them; each glyph slumps and tips a little to one side or the other, at
+random, but stays the right way up and in order, so the text remains readable. Wilted, the glyphs
+rest just above the path and the sprouts stop swaying.
 
 To animate a change, render with `wiltTransition: { from, at }` and keep re-rendering with an
 advancing `timeOffset` until it's over (`at + stagger + duration` seconds). Sprouts move in turn
-along the path: wilting ones fall and land with a small bounce, recovering ones spring back up
+along the path: wilting ones sink and settle with a small bounce, recovering ones spring back up
 past upright and settle. `growtype-react` does this for you whenever `wilt` changes.
 
 ```ts
@@ -109,7 +110,7 @@ don't apply to them.
 | `tilt`                                    | `18`               | Lean range in degrees: `±n` or `[min, max]`.                                                                                                                                                                                                                                |
 | `tiltCoherence`                           | `0.6`              | 0–1, how much neighbours lean together (reduces collisions).                                                                                                                                                                                                                |
 | `twist`                                   | `6`                | Extra ± glyph rotation relative to its stalk.                                                                                                                                                                                                                               |
-| `wilt`                                    | `"full"`           | `full` → `slightly-damaged` → `damaged` → `wilted` (or 0–3, fractions allowed). Stalks droop further at each stage, thinning and kinking; wilted, they collapse and the glyphs lie on the path.                                                                             |
+| `wilt`                                    | `"full"`           | `full` → `slightly-damaged` → `damaged` → `wilted` (or 0–3, fractions allowed). Glyphs sink lower on buckling stalks at each stage, tipping a little to either side but staying readable; wilted sprouts stop swaying.                                                      |
 | `seed`                                    | `1`                | Same seed + options ⇒ identical SVG. Randomness is keyed per character, so tweaking one option doesn't reshuffle everything.                                                                                                                                                |
 | `grow`                                    | `false`            | `true` or `{ duration, stagger, delay, order, pathDuration }`. Foot blooms, stalk extends, glyph pops. `order: "auto"` follows the justification.                                                                                                                           |
 | `sway`                                    | `false`            | `true` or `{ amplitude, period, wave }`. Sprouts sway about their feet in a slow wave travelling along the path (neighbours move nearly together, so they don't swing into each other); `wave` adds gusts of wind.                                                          |

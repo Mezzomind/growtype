@@ -12,7 +12,7 @@ export type WiltTransitionSettings = Omit<WiltTransition, "from" | "at" | "inter
 
 export interface UseGrowtypeSettings {
   /**
-   * Animate each change of `wilt`: sprouts fall (or spring back up) one after another along the
+   * Animate each change of `wilt`: sprouts sink (or spring back up) one after another along the
    * path. `false` changes stage instantly. Default true.
    */
   wiltTransition?: boolean | WiltTransitionSettings;
