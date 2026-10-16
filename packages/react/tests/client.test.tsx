@@ -4,7 +4,12 @@ import { resolve } from "node:path";
 import { act, createRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vite-plus/test";
-import { Growtype, type GrowtypeHandle, type GrowtypeProps } from "../src/index.ts";
+import {
+  Growtype,
+  type GrowtypeHandle,
+  type GrowtypeProps,
+  type GrowtypeResult,
+} from "../src/index.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -16,8 +21,20 @@ const base: GrowtypeProps = {
   height: 200,
 };
 
-/** How many blasts a rendered frame carries: each knocks every sprout of "spores" back once. */
-const blastsIn = (svg: string) => (svg.match(/-blast"/g)?.length ?? 0) / 6;
+/** How far each sprout's glyph has wilted in a rendered frame. */
+const wilts = (r: GrowtypeResult) => r.characters.map((c) => c.wilt);
+
+/** A component whose wilt the test can change, recording every render. */
+function wiltable(props: Partial<GrowtypeProps> = {}) {
+  const frames: GrowtypeResult[] = [];
+  const control = { setWilt: (_w: GrowtypeProps["wilt"]) => {} };
+  function App() {
+    const [wilt, set] = useState<GrowtypeProps["wilt"]>("full");
+    control.setWilt = set;
+    return <Growtype {...base} {...props} wilt={wilt} onRender={(r) => frames.push(r)} />;
+  }
+  return { App, frames, control };
+}
 
 let host: HTMLDivElement;
 beforeEach(() => {
@@ -53,97 +70,57 @@ describe("<Growtype> in the browser", () => {
     expect(host.querySelector("svg")).toBe(svg);
   });
 
-  test("changing wilt sweeps a blast wave across, then settles", async () => {
-    let setWilt: (w: GrowtypeProps["wilt"]) => void = () => {};
-    const frames: string[] = [];
-    function App() {
-      const [wilt, set] = useState<GrowtypeProps["wilt"]>("full");
-      setWilt = set;
-      return (
-        <Growtype
-          {...base}
-          wilt={wilt}
-          blastOnWiltChange={{ direction: "right", duration: 0.2, recoil: 0.2 }}
-          onRender={(r) => frames.push(r.svg)}
-        />
-      );
-    }
+  test("changing wilt animates each sprout in turn, then settles", async () => {
+    const { App, frames, control } = wiltable({ wiltTransition: { duration: 0.2, stagger: 0.1 } });
     await mount(<App />);
-    expect(frames.some((f) => blastsIn(f) > 0)).toBe(false);
-    // act() keeps flushing the per-frame re-renders until the blast has played out.
-    await act(async () => setWilt("wilted"));
-    const during = frames.filter((f) => blastsIn(f) > 0);
-    expect(during.length).toBeGreaterThan(1);
-    // Knocked towards the left, away from a blast coming from the right.
-    expect(during[0]).toMatch(/--k:-[\d.]+deg/);
-    // Once it's over the transient blast markup is gone.
-    expect(blastsIn(host.innerHTML)).toBe(0);
+    expect(wilts(frames[0]!).every((w) => w === 0)).toBe(true);
+    // act() keeps flushing the per-frame re-renders until the transition has played out.
+    await act(async () => control.setWilt("wilted"));
+    expect(frames.length).toBeGreaterThan(3);
+    // Part way through, some sprouts have fallen further than others.
+    expect(frames.some((f) => new Set(wilts(f).map((w) => w.toFixed(2))).size > 1)).toBe(true);
+    expect(wilts(frames.at(-1)!).every((w) => w > 0.85)).toBe(true);
   });
 
-  test("the new wilt never shows before its blast does", async () => {
-    let setWilt: (w: GrowtypeProps["wilt"]) => void = () => {};
-    const frames: string[] = [];
-    function App() {
-      const [wilt, set] = useState<GrowtypeProps["wilt"]>("full");
-      setWilt = set;
-      return (
-        <Growtype
-          {...base}
-          wilt={wilt}
-          blastOnWiltChange={{ duration: 0.2, recoil: 0.2 }}
-          onRender={(r) => frames.push(r.svg)}
-        />
-      );
-    }
+  test("the new wilt never shows before its transition does", async () => {
+    const { App, frames, control } = wiltable({ wiltTransition: { duration: 0.2, stagger: 0.1 } });
     await mount(<App />);
-    await act(async () => setWilt("wilted"));
-    // The first render after the change already carries the blast, rather than snapping every
-    // sprout to the new wilt for a frame before the wave sets off.
-    expect(blastsIn(frames[1]!)).toBe(1);
+    await act(async () => control.setWilt("wilted"));
+    // The first render after the change starts from where the sprouts were, rather than showing
+    // them already wilted for a frame before animating there.
+    expect(wilts(frames[1]!).every((w) => w < 0.01)).toBe(true);
   });
 
-  test("a blast fired mid-blast carries on from where the first left off", async () => {
-    let setWilt: (w: GrowtypeProps["wilt"]) => void = () => {};
-    const frames: string[] = [];
-    function App() {
-      const [wilt, set] = useState<GrowtypeProps["wilt"]>("full");
-      setWilt = set;
-      return (
-        <Growtype {...base} wilt={wilt} blastOnWiltChange onRender={(r) => frames.push(r.svg)} />
-      );
-    }
+  test("a change made mid-transition carries on from where the sprouts are", async () => {
+    const { App, frames, control } = wiltable();
     await mount(<App />);
-    // Separate acts, so the second change lands while the first blast is still playing.
-    act(() => setWilt("wilted"));
-    act(() => setWilt("full"));
-    await act(async () => new Promise((r) => setTimeout(r, 100)));
-    // Both blasts play: the second interrupts the first instead of replacing it.
-    expect(frames.some((f) => blastsIn(f) === 2)).toBe(true);
+    // Separate acts, so the second change lands while the first transition is still playing.
+    act(() => control.setWilt("wilted"));
+    await act(async () => new Promise((r) => setTimeout(r, 400)));
+    const before = frames.length;
+    act(() => control.setWilt("full"));
+    await act(async () => new Promise((r) => setTimeout(r, 50)));
+    const [a, b] = [frames[before - 1]!, frames[before]!];
+    // Nothing jumps: every glyph is within a frame's motion of where it just was.
+    a.characters.forEach((c, i) => {
+      const d = b.characters[i]!;
+      expect(Math.hypot(c.tip.x - d.tip.x, c.tip.y - d.tip.y)).toBeLessThan(6);
+    });
   }, 10000);
 
-  test("no blast when blastOnWiltChange is off", async () => {
-    let setWilt: (w: GrowtypeProps["wilt"]) => void = () => {};
-    const frames: string[] = [];
-    function App() {
-      const [wilt, set] = useState<GrowtypeProps["wilt"]>("full");
-      setWilt = set;
-      return <Growtype {...base} wilt={wilt} onRender={(r) => frames.push(r.svg)} />;
-    }
+  test("wilt changes instantly when wiltTransition is off", async () => {
+    const { App, frames, control } = wiltable({ wiltTransition: false });
     await mount(<App />);
-    await act(async () => setWilt("wilted"));
+    await act(async () => control.setWilt("wilted"));
     expect(frames.length).toBe(2);
-    expect(frames.some((f) => blastsIn(f) > 0)).toBe(false);
+    expect(wilts(frames[1]!).every((w) => w > 0.85)).toBe(true);
   });
 
-  test("ref exposes replay, blast and toSVG", async () => {
+  test("ref exposes replay and toSVG", async () => {
     const ref = createRef<GrowtypeHandle>();
-    const frames: string[] = [];
-    await mount(<Growtype {...base} ref={ref} grow onRender={(r) => frames.push(r.svg)} />);
+    await mount(<Growtype {...base} ref={ref} grow />);
     expect(ref.current!.toSVG()).toMatch(/^<svg /);
-    await act(async () => ref.current!.blast({ direction: "left", duration: 0.2, recoil: 0.2 }));
-    expect(frames.some((f) => blastsIn(f) > 0 && /--k:[\d.]+deg/.test(f))).toBe(true);
-    // The exported SVG never includes the transient blast.
-    expect(blastsIn(ref.current!.toSVG())).toBe(0);
+    await act(async () => new Promise((r) => setTimeout(r, 50)));
     const before = host.querySelector("svg");
     await act(async () => ref.current!.replay());
     expect(host.querySelector("svg")).not.toBe(before);

@@ -1,18 +1,21 @@
 import {
-  type BlastOptions,
   type GrowtypeOptions,
   type GrowtypeResult,
+  type WiltTransition,
   growtype,
   wiltIndex,
 } from "growtype";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-/** Blast settings used when the wilt stage changes (timing and `fromWilt` are filled in for you). */
-export type BlastOnWiltChange = Omit<BlastOptions, "at" | "fromWilt">;
+/** How wilt changes animate (which stage it starts from, and when, are filled in for you). */
+export type WiltTransitionSettings = Omit<WiltTransition, "from" | "at" | "interrupts">;
 
 export interface UseGrowtypeSettings {
-  /** Sweep a blast wave across the text whenever `wilt` changes. Default false. */
-  blastOnWiltChange?: boolean | BlastOnWiltChange;
+  /**
+   * Animate each change of `wilt`: sprouts fall (or spring back up) one after another along the
+   * path. `false` changes stage instantly. Default true.
+   */
+  wiltTransition?: boolean | WiltTransitionSettings;
   /**
    * Restart the animation timeline whenever the options change. By default animations continue
    * where they are, so tweaking props mid-animation doesn't make anything jump.
@@ -26,23 +29,27 @@ export interface UseGrowtypeResult {
   error: Error | null;
   /** Restart all animations from the beginning. */
   replay: () => void;
-  /** Fire a blast wave now (optionally overriding its settings). */
-  blast: (overrides?: BlastOnWiltChange & { fromWilt?: GrowtypeOptions["wilt"] }) => void;
-  /** A standalone SVG whose animations start from zero (no transient blast). */
+  /** A standalone SVG whose animations start from zero (at the current wilt, no transition). */
   toSVG: () => string;
 }
 
-const DEFAULT_BLAST = { duration: 1.1, recoil: 1.6 };
+/** The core's defaults, so the hook knows when a transition is over. */
+const DEFAULT_TRANSITION = { duration: 1.4, stagger: 0.8 };
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
-/** Seconds on the timeline when a blast and its recoil are over. */
-const blastEnd = (b: BlastOptions): number =>
-  (b.at ?? 0) + (b.duration ?? DEFAULT_BLAST.duration) + (b.recoil ?? DEFAULT_BLAST.recoil) + 0.3;
+/** Seconds on the timeline when every sprout has settled after a transition. */
+const transitionEnd = (t: WiltTransition): number =>
+  (t.at ?? 0) +
+  (t.stagger ?? DEFAULT_TRANSITION.stagger) +
+  (t.duration ?? DEFAULT_TRANSITION.duration);
 
-/** The part of a blast chain still playing at time `t` (finished blasts dropped). */
-function stillPlaying(b: BlastOptions | null | undefined, t: number): BlastOptions | undefined {
-  if (!b || blastEnd(b) < t) return undefined;
-  return { ...b, interrupts: stillPlaying(b.interrupts, t) };
+/** The part of a transition chain still playing at time `at` (finished ones dropped). */
+function stillPlaying(
+  t: WiltTransition | null | undefined,
+  at: number,
+): WiltTransition | undefined {
+  if (!t || transitionEnd(t) < at) return undefined;
+  return { ...t, interrupts: stillPlaying(t.interrupts, at) };
 }
 
 const fontIds = new WeakMap<object, number>();
@@ -68,7 +75,7 @@ export function optionsKey(options: GrowtypeOptions | null): string {
 /**
  * Render growtype for React. Keeps the animation timeline running across re-renders (so prop
  * changes never restart or jump the animation), only recomputes when the options actually change,
- * and can fire a blast wave whenever the wilt stage changes.
+ * and animates changes of the wilt stage.
  */
 export function useGrowtype(
   options: GrowtypeOptions | null,
@@ -81,70 +88,51 @@ export function useGrowtype(
   const key = optionsKey(options);
   const optionsRef = useRef(options);
   optionsRef.current = options;
-  const blastCfg =
-    settings.blastOnWiltChange === true
-      ? {}
-      : settings.blastOnWiltChange
-        ? settings.blastOnWiltChange
-        : null;
-  const blastCfgRef = useRef(blastCfg);
-  blastCfgRef.current = blastCfg;
+  const transitionCfg =
+    settings.wiltTransition === false
+      ? null
+      : typeof settings.wiltTransition === "object"
+        ? settings.wiltTransition
+        : {};
 
   const [replayKey, setReplayKey] = useState(0);
   const [frame, setFrame] = useState(0);
-  // The blast playing, if any. Held in a ref so a wilt change can start one in the same render
-  // that sees it (see below); `frame` re-renders whenever it changes.
-  const blastRef = useRef<BlastOptions | null>(null);
+  // The transition playing, if any. Held in a ref so a wilt change can start one in the same
+  // render that sees it, rather than in an effect afterwards: otherwise that render would show
+  // every sprout already at the new wilt, then snap back to animate there.
+  const transitionRef = useRef<WiltTransition | null>(null);
 
-  const makeBlast = useCallback(
-    (overrides: Parameters<UseGrowtypeResult["blast"]>[0] = {}): BlastOptions => {
-      const at = timeline() + 0.05;
-      return {
-        ...DEFAULT_BLAST,
-        ...blastCfgRef.current,
-        ...overrides,
-        at,
-        fromWilt: overrides.fromWilt ?? optionsRef.current?.wilt,
-        // A blast still playing carries on until this front reaches each sprout, so nothing
-        // jumps back to rest first.
-        interrupts: stillPlaying(blastRef.current, at),
-      };
-    },
-    [timeline],
-  );
-
-  const fireBlast = useCallback<UseGrowtypeResult["blast"]>(
-    (overrides) => {
-      blastRef.current = makeBlast(overrides);
-      setFrame((f) => f + 1);
-    },
-    [makeBlast],
-  );
-
-  // Start the blast while rendering the wilt change, not in an effect afterwards: otherwise that
-  // render shows every sprout already at the new wilt, before the wave has reached it.
   const wilt = options ? wiltIndex(options.wilt) : 0;
   const prevWilt = useRef(wilt);
   if (prevWilt.current !== wilt) {
     const from = prevWilt.current;
     prevWilt.current = wilt;
-    if (blastCfg) blastRef.current = makeBlast({ fromWilt: from });
+    const at = timeline();
+    transitionRef.current = transitionCfg && {
+      ...DEFAULT_TRANSITION,
+      ...transitionCfg,
+      from,
+      at,
+      // A transition still playing carries on until each sprout's turn comes, so nothing jumps
+      // back to rest first.
+      interrupts: stillPlaying(transitionRef.current, at),
+    };
   }
-  const blast = blastRef.current;
+  const transition = transitionRef.current;
 
-  // Re-render every frame while it plays, so each sprout's wilt changes as the front passes.
+  // Re-render every frame while it plays, so each sprout moves on in turn.
   useEffect(() => {
-    if (!blast) return;
+    if (!transition) return;
     let end = 0;
-    for (let b: BlastOptions | undefined = blast; b; b = b.interrupts)
-      end = Math.max(end, blastEnd(b));
+    for (let t: WiltTransition | undefined = transition; t; t = t.interrupts)
+      end = Math.max(end, transitionEnd(t));
     let raf = requestAnimationFrame(function tick() {
-      if (timeline() > end && blastRef.current === blast) blastRef.current = null;
+      if (timeline() > end && transitionRef.current === transition) transitionRef.current = null;
       setFrame((f) => f + 1);
-      if (blastRef.current === blast) raf = requestAnimationFrame(tick);
+      if (transitionRef.current === transition) raf = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(raf);
-  }, [blast, timeline]);
+  }, [transition, timeline]);
 
   const prevKey = useRef(key);
   const rendered = useMemo(() => {
@@ -154,13 +142,17 @@ export function useGrowtype(
     if (!opts) return { result: null, error: null };
     try {
       return {
-        result: growtype({ ...opts, blast: blast ?? opts.blast, timeOffset: timeline() }),
+        result: growtype({
+          ...opts,
+          wiltTransition: transition ?? opts.wiltTransition,
+          timeOffset: timeline(),
+        }),
         error: null,
       };
     } catch (e) {
       return { result: null, error: e instanceof Error ? e : new Error(String(e)) };
     }
-  }, [key, replayKey, frame, blast, settings.restartOnChange, timeline]);
+  }, [key, replayKey, frame, transition, settings.restartOnChange, timeline]);
 
   const replay = useCallback(() => {
     epoch.current = now();
@@ -169,8 +161,8 @@ export function useGrowtype(
 
   const toSVG = useCallback(() => {
     const opts = optionsRef.current;
-    return opts ? growtype({ ...opts, blast: undefined, timeOffset: 0 }).svg : "";
+    return opts ? growtype({ ...opts, wiltTransition: undefined, timeOffset: 0 }).svg : "";
   }, []);
 
-  return { ...rendered, replay, blast: fireBlast, toSVG };
+  return { ...rendered, replay, toSVG };
 }

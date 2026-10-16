@@ -47,7 +47,7 @@ export function toConfig(s: Settings, pathData: string): GrowtypeConfig {
       period: s.swayPeriod,
       wave: s.wave && { amplitude: s.waveAmplitude },
     },
-    blastOnWiltChange: s.blastOnWilt && { direction: s.blastFrom, strength: s.blastStrength },
+    wiltTransition: s.animateWilt && { duration: s.wiltDuration, stagger: s.wiltStagger },
     glyphColor: s.glyphColor,
     ...(PALETTES[s.palette] ? { palette: PALETTES[s.palette]! } : {}),
     stemColor: s.stemColor,
@@ -170,11 +170,11 @@ export function fromConfig(
       if (isObj(c.sway.wave)) s.waveAmplitude = num(c.sway.wave.amplitude, s.waveAmplitude);
     } else s.wave = false;
   }
-  if (c.blastOnWiltChange !== undefined) {
-    s.blastOnWilt = Boolean(c.blastOnWiltChange);
-    if (isObj(c.blastOnWiltChange)) {
-      s.blastFrom = oneOf(c.blastOnWiltChange.direction, ["left", "right"] as const, s.blastFrom);
-      s.blastStrength = num(c.blastOnWiltChange.strength, s.blastStrength);
+  if (c.wiltTransition !== undefined) {
+    s.animateWilt = Boolean(c.wiltTransition);
+    if (isObj(c.wiltTransition)) {
+      s.wiltDuration = num(c.wiltTransition.duration, s.wiltDuration);
+      s.wiltStagger = num(c.wiltTransition.stagger, s.wiltStagger);
     }
   }
 

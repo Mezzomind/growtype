@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking:** `blastOnWiltChange` and the ref's `blast()` are gone. Wilt changes now animate by
+  default (`wiltTransition`, `false` to switch off), starting in the same render as the change
+  and carrying on from where sprouts are if it changes again mid-transition.
+- `replay()` restarts the animations even when nothing has re-rendered since mounting.
+
 ## 0.1.0
 
 First release.

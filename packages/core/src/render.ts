@@ -4,7 +4,6 @@ import {
   add,
   angleDeg,
   clamp,
-  dist,
   fmt,
   leftNormal,
   lerp,
@@ -45,8 +44,6 @@ export interface PlacedCharacter {
   growDelay: number;
   /** Wilt intensity actually applied, 0–1. */
   wilt: number;
-  /** Seconds (on the animation timeline) when the blast front reaches this character. */
-  blastHit?: number;
   /** Convex outline of the glyph in SVG coordinates. */
   outline: Point[];
 }
@@ -85,6 +82,7 @@ function style(s: Record<string, string | undefined>): string | undefined {
   return parts.length ? parts.join(";") : undefined;
 }
 
+const dot = (a: Point, b: Point) => a.x * b.x + a.y * b.y;
 const sec = (n: number) => `${fmt(n, 3)}s`;
 const origin = (p: Point) => `${fmt(p.x)}px ${fmt(p.y)}px`;
 
@@ -110,13 +108,6 @@ function css(p: string): string {
     `@keyframes ${p}-sway{0%,100%{transform:rotate(0)}25%{transform:rotate(var(--a))}75%{transform:rotate(calc(var(--a) * -1))}}`,
     `@keyframes ${p}-gust{0%{transform:rotate(0)}10%{transform:rotate(var(--g))}22%{transform:rotate(calc(var(--g) * -.35))}32%{transform:rotate(calc(var(--g) * .12))}42%,100%{transform:rotate(0)}}`,
     `@keyframes ${p}-drift{0%,100%{transform:translate(0,0)}50%{transform:translate(var(--dx),var(--dy))}}`,
-    `.${p} .${p}-blast,.${p} .${p}-debris,.${p} .${p}-push{transform-box:view-box}`,
-    `.${p}-blast{animation:${p}-blast 1.6s ease-out}`,
-    `.${p}-debris{animation:${p}-debris 1s cubic-bezier(.2,.7,.3,1) both}`,
-    `.${p}-push{animation:${p}-push 1.4s cubic-bezier(.2,.7,.3,1)}`,
-    `@keyframes ${p}-blast{0%{transform:rotate(0)}8%{transform:rotate(var(--k))}24%{transform:rotate(calc(var(--k) * -.55))}40%{transform:rotate(calc(var(--k) * .3))}58%{transform:rotate(calc(var(--k) * -.14))}76%{transform:rotate(calc(var(--k) * .05))}100%{transform:rotate(0)}}`,
-    `@keyframes ${p}-debris{0%{transform:translate(0,0);opacity:0}6%{opacity:.9}100%{transform:translate(var(--dx),var(--dy));opacity:0}}`,
-    `@keyframes ${p}-push{0%{transform:translate(0,0)}12%{transform:translate(var(--px),var(--py))}100%{transform:translate(0,0)}}`,
     `@media (prefers-reduced-motion:reduce){.${p} *{animation:none!important}}`,
   ].join("");
 }
@@ -139,23 +130,34 @@ interface Pose {
   u: number;
   /** Droop magnitude in degrees (from wilt); direction is `droopSign`. */
   droop: number;
-  /** ±1, or in between while a blast blends between two resting placements. */
+  /** ±1, or in between while a transition blends between two resting placements. */
   droopSign: number;
   anchorLocal: Point;
-  /** When the blast front reaches this sprout. */
-  hit: number;
+  /** Arc length of the stalk's foot. */
+  sBase: number;
+  /** Lifts a fallen glyph so it lies on the path rather than through it. */
+  lift: Point;
+}
+
+/** Add a droop to an angle, but no further than `limit` (or the angle itself, if beyond it). */
+function droopTo(angle: number, droop: number, limit: number): number {
+  const l = Math.max(limit, Math.abs(angle));
+  return clamp(angle + droop, -l, l);
 }
 
 function poseGeometry(q: Pose) {
-  const phi = q.lean + q.droopSign * q.droop;
+  // A stalk can droop until it lies along the path, but not through it.
+  const phi = droopTo(q.lean, q.droopSign * q.droop, 90);
   // The glyph keeps its own lean (not the structural fan-out of a gathered base) relative to the
-  // path under it; the stalk curves to meet it.
+  // path under it; the stalk curves to meet it. A wilting glyph nods a little past its stalk.
   const tipDir = rotate(
     q.glyphNormal,
-    q.lean - q.lean0 + q.droopSign * (q.droop + q.u * 6) + q.twist,
+    droopTo(q.lean - q.lean0 + q.twist, q.droopSign * (q.droop + q.u * 10), 105),
   );
-  const anchorPt = add(q.base, scale(rotate(q.normal, phi), q.length * (1 - 0.12 * q.u)));
-  return { tipDir, anchorPt, rotation: angleDeg(tipDir) + 90, glyphScale: 1 - 0.07 * q.u };
+  // A collapsing stalk crumples, so fallen glyphs land near their own foot.
+  const reach = q.length * (1 - 0.5 * q.u);
+  const anchorPt = add(add(q.base, scale(rotate(q.normal, phi), reach)), q.lift);
+  return { tipDir, anchorPt, rotation: angleDeg(tipDir) + 90, glyphScale: 1 - 0.1 * q.u };
 }
 
 /** The glyph's convex outline in SVG coordinates. */
@@ -226,6 +228,8 @@ function resolveOverlaps(poses: Pose[], o: { fontSize: number; stemHalf: number 
   const pairs: Array<{ i: number; j: number; allowed: number; seen: number }> = [];
   for (let i = 0; i < poses.length; i++) {
     for (let j = i + 1; j <= i + 2 && j < poses.length; j++) {
+      // Collapsed sprouts lie where they fall, on top of each other if need be.
+      if (Math.max(poses[i]!.u, poses[j]!.u) > 0.85) continue;
       // Some overlap is inherent (tight kerning, hollows in the path): measure it with both
       // standing straight up, and only correct what leaning and twisting add on top.
       const inherent = clash(uprights[i]!, uprights[j]!);
@@ -277,9 +281,9 @@ type Placement = Pick<Pose, "lean" | "twist" | "u" | "droop" | "droopSign">;
 const fontIds = new WeakMap<object, number>();
 let nextFontId = 1;
 
-/** Identifies everything that decides where sprouts rest: all options but the blast's timing. */
+/** Identifies everything that decides where sprouts rest: all options but a transition's. */
 function placementKey(o: GrowtypeOptions): string {
-  const { blast: _blast, timeOffset: _timeOffset, ...rest } = o;
+  const { wiltTransition: _transition, timeOffset: _timeOffset, ...rest } = o;
   return JSON.stringify(rest, (_key, value: unknown) => {
     // Font objects (parsed fonts, adapters) are compared by identity.
     if (
@@ -297,7 +301,7 @@ function placementKey(o: GrowtypeOptions): string {
 
 const placements = new Map<string, Placement[]>();
 
-/** A small cache of resting placements: enough for the two ends of a few blasts in flight. */
+/** A small cache of resting placements: enough for the two ends of a few transitions in flight. */
 function cachedPlacement(key: string, compute: () => Placement[]): Placement[] {
   let hit = placements.get(key);
   if (hit) {
@@ -310,10 +314,19 @@ function cachedPlacement(key: string, compute: () => Placement[]): Placement[] {
   return hit;
 }
 
-const smoothstep = (t: number) => {
+/** Wilting: falls under its own weight, lands, bounces once and settles. 0 → 1. */
+function fallEase(t: number): number {
   const x = clamp(t, 0, 1);
-  return x * x * (3 - 2 * x);
-};
+  if (x < 0.55) return (x / 0.55) ** 2;
+  const b = (x - 0.55) / 0.45;
+  return 1 - 0.16 * Math.sin(Math.PI * b) * (1 - b);
+}
+
+/** Recovering: springs back up, overshoots and settles. 0 → 1, peaking a little above. */
+function springEase(t: number): number {
+  const x = clamp(t, 0, 1) - 1;
+  return 1 + 2.7 * x ** 3 + 1.7 * x ** 2;
+}
 
 /** Render text growing out of a path. Returns the SVG and layout details. */
 export function growtype(options: GrowtypeOptions): GrowtypeResult {
@@ -419,15 +432,17 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   const growStart = grow ? grow.delay + pathDrawTime : 0;
 
   // ---- Poses: how each sprout leans, how tall it stands and how wilted it is ----
-  // The blast, then any blasts it interrupted, newest first. Each one wilts sprouts towards the
-  // stage its successor started from.
-  const blasts: Array<typeof DEFAULTS.blast & { to: number; from: number; hits: number[] }> = [];
-  for (let b = o.blast, to = wilt; b && blasts.length < 8; b = b.interrupts) {
-    const from = b.fromWilt !== undefined ? wiltIndex(b.fromWilt) : to;
-    blasts.push({ ...DEFAULTS.blast, ...b, to, from, hits: [] });
+  // The wilt transition, then any it interrupted, newest first. Each one heads for the stage
+  // its successor started from.
+  const transitions: Array<
+    typeof DEFAULTS.wiltTransition & { from: number; to: number; starts: number[] }
+  > = [];
+  for (let tr = o.wiltTransition, to = wilt; tr && transitions.length < 8; tr = tr.interrupts) {
+    const from = wiltIndex(tr.from);
+    const { at, duration, stagger, direction } = { ...DEFAULTS.wiltTransition, ...tr };
+    transitions.push({ at, duration, stagger, direction, from, to, starts: [] });
     to = from;
   }
-  const blast = blasts[0] ?? null;
   const stemHalf = thickness * shrink * 0.8;
 
   // Within a word, stem bases can huddle closer together than the glyphs they hold up.
@@ -451,6 +466,12 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     const ln = leftNormal(sampler.tangentAt(s));
     return side === "left" ? ln : scale(ln, -1);
   };
+
+  // Sprouts all wilt the same way, like a field flattened by the weather: towards whichever end
+  // of the path has more room, so collapsed glyphs don't fall off its end.
+  const fallForward = sampler.length - layout.end >= layout.start;
+  const fallSign = (normal: Point, tangent: Point) =>
+    (dot(rotate(normal, 90), tangent) > 0 ? 1 : -1) * (fallForward ? 1 : -1);
 
   const poses: Pose[] = visible.map((c) => {
     const i = c.index;
@@ -489,37 +510,37 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       twist: twist * (r("twist") * 2 - 1),
       u: 0,
       droop: 0,
-      droopSign: Math.abs(jitter) > 2 ? Math.sign(jitter) : r("droop-side") < 0.5 ? -1 : 1,
+      droopSign: fallSign(normal, tangent),
       anchorLocal,
-      hit: 0,
+      sBase,
+      lift: { x: 0, y: 0 },
     };
   });
 
-  // ---- Blast waves: when each (invisible) front reaches each sprout ----
+  // ---- Transitions: when each sprout sets off, in turn along the path ----
   if (poses.length) {
-    const xs = poses.map((q) => q.base.x);
-    const midY =
-      poses.reduce((acc, q) => acc + q.base.y + q.normal.y * q.length * 0.6, 0) / poses.length;
-    for (const b of blasts) {
-      const origin = {
-        x: b.direction === "left" ? Math.min(...xs) - fontSize : Math.max(...xs) + fontSize,
-        y: midY,
-      };
-      const reach = Math.max(...poses.map((q) => dist(origin, q.base)), 1);
-      b.hits = poses.map((q) => b.at + (b.duration * dist(origin, q.base)) / reach);
+    const s0 = Math.min(...poses.map((q) => q.sBase));
+    const span = Math.max(...poses.map((q) => q.sBase)) - s0 || 1;
+    for (const tr of transitions) {
+      tr.starts = poses.map((q) => {
+        const f = (q.sBase - s0) / span;
+        return tr.at + tr.stagger * (tr.direction === "end" ? 1 - f : f);
+      });
     }
-    if (blast) poses.forEach((q, k) => (q.hit = blast.hits[k]!));
   }
+
   // ---- Placement: wilt each sprout, then nudge neighbours apart ----
-  // Overlaps are only resolved for sprouts at rest. A blast glides each sprout from its resting
-  // placement at the old wilt to the one at the new wilt, and may overlap a little on the way.
+  // Overlaps are only resolved for sprouts at rest. A transition moves each sprout from where it
+  // is to its resting placement at the new wilt, and may overlap a little on the way.
   const avoidOverlap = (o.avoidOverlap ?? DEFAULTS.avoidOverlap) && poses.length > 1;
   const settle = (w: number): Placement[] => {
     const settled = poses.map((q) => {
       const r = (ch: string) => rng.value(q.c.index, ch);
       // Per-character jitter fades in with the first stage so fractional wilt tweens smoothly from 0.
       const u = clamp(w / 3 + (r("wilt") - 0.5) * 0.22 * Math.min(1, w), 0, 1);
-      return { ...q, u, droop: u * 13 * (0.75 + 0.5 * r("droop")) };
+      // Droop grows faster than linearly: a nod at the first stage, a heavy stoop at the second,
+      // and collapsed along the path when wilted.
+      return { ...q, u, droop: 90 * u ** 1.25 * (0.92 + 0.16 * r("droop")) };
     });
     if (avoidOverlap) resolveOverlaps(settled, { fontSize, stemHalf });
     return settled.map(({ lean, twist, u, droop, droopSign }) => ({
@@ -530,22 +551,23 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       droopSign,
     }));
   };
-  if (blast) {
-    // Blast frames are re-rendered many times a second with only `blast` and `timeOffset`
-    // changing, so the resting placements are remembered between calls.
+  if (transitions.length) {
+    // Transition frames are re-rendered many times a second with only the transition and
+    // `timeOffset` changing, so the resting placements are remembered between calls.
     const key = placementKey(o);
     const rest = (w: number) => cachedPlacement(`${key}|${w}`, () => settle(w));
-    // Where blast `n` has sprout `k` at timeOffset: wherever the blast it interrupted had it (or
-    // resting at its starting wilt) until the front arrives, then gliding to rest at its wilt.
+    // Where transition `n` has sprout `k` at timeOffset: wherever the transition it interrupted
+    // had it (or resting at its starting wilt) until its turn, then moving to rest at its wilt.
     const placementIn = (n: number, k: number): Placement => {
-      const b = blasts[n]!;
-      const a = n + 1 < blasts.length ? placementIn(n + 1, k) : rest(b.from)[k]!;
-      const z = rest(b.to)[k]!;
-      const t = smoothstep((timeOffset - b.hits[k]!) / 0.35);
+      const tr = transitions[n]!;
+      const a = n + 1 < transitions.length ? placementIn(n + 1, k) : rest(tr.from)[k]!;
+      const z = rest(tr.to)[k]!;
+      const x = (timeOffset - tr.starts[k]!) / Math.max(tr.duration, 0.01);
+      const t = tr.to > tr.from ? fallEase(x) : springEase(x);
       return {
         lean: lerp(a.lean, z.lean, t),
         twist: lerp(a.twist, z.twist, t),
-        u: lerp(a.u, z.u, t),
+        u: clamp(lerp(a.u, z.u, t), -0.2, 1),
         droop: lerp(a.droop, z.droop, t),
         // Fractional while blending, so a sprout drooping the other way swings through upright.
         droopSign: lerp(a.droopSign, z.droopSign, t),
@@ -556,13 +578,28 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     settle(wilt).forEach((pl, k) => Object.assign(poses[k]!, pl));
   }
 
+  // ---- Fallen glyphs lie on the path, not through it ----
+  const clearance = stemHalf * 1.5;
+  for (const q of poses) {
+    const weight = clamp((q.u - 0.3) / 0.4, 0, 1);
+    if (weight === 0) continue;
+    const hull = glyphHull(q);
+    if (!hull.length) continue;
+    // The ground under the glyph: the path where the fallen glyph has come to lie.
+    const { anchorPt } = poseGeometry(q);
+    const sGround = q.sBase + dot(sub(anchorPt, q.base), q.tangent);
+    const ground = sampler.pointAt(sGround);
+    const up = normalAt(sGround);
+    const lowest = Math.min(...hull.map((h) => dot(sub(h, ground), up)));
+    if (lowest < clearance) q.lift = scale(up, (clearance - lowest) * weight);
+  }
+
   const charsOut: Array<{ s: number; base: Point; inner: string }> = [];
   const sporesOut: string[] = [];
-  const debrisOut: string[] = [];
   const placed: PlacedCharacter[] = [];
   let growEndAll = 0;
 
-  for (const [qk, q] of poses.entries()) {
+  for (const q of poses) {
     const { c, base, tangent, normal, u, anchorLocal } = q;
     const i = c.index;
     const r = (ch: string) => rng.value(i, ch);
@@ -572,16 +609,20 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     const overlap = Math.min(thickness * shrink * 1.4, fontSize * 0.08);
     const tip = add(anchorPt, scale(tipDir, overlap));
 
+    // A drooping stalk leaves the path already leaning into its fall, so a collapsed one lies
+    // along the path instead of arching up off it.
+    const fall = clamp(q.droopSign * q.droop, -90, 90) * 0.8;
     const stem = buildStem({
       base,
       normal,
+      leave: fall ? rotate(normal, fall) : normal,
       tangent,
       tip,
       tipDir,
       thickness: thickness * shrink,
       flare,
       wobble,
-      wilt: u,
+      wilt: clamp(u, 0, 1),
       variance: o.stemVariance ?? DEFAULTS.stemVariance,
       rand: rng.stream(i, "stem"),
     });
@@ -664,41 +705,6 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
         }),
       })}>${inner}</g>`;
     }
-    // One knock-back per blast still playing, so an interrupted blast's recoil plays out.
-    blasts.forEach((b, n) => {
-      const dir = b.direction === "left" ? 1 : -1;
-      const k = b.strength * dir * (0.75 + 0.5 * r("blast"));
-      const hit = b.hits[qk]!;
-      inner = `<g${attrs({
-        class: `${p}-blast`,
-        style: style({
-          "--k": `${fmt(k)}deg`,
-          "transform-origin": origin(base),
-          "animation-delay": at(hit),
-          "animation-duration": sec(b.recoil),
-        }),
-      })}>${inner}</g>`;
-      // Debris knocked loose by the shock front.
-      const dr = rng.stream(i, n ? `debris${n}` : "debris");
-      for (let k2 = 0; k2 < b.debris; k2++) {
-        const from = add(base, scale(normal, q.length * dr()));
-        debrisOut.push(
-          `<circle${attrs({
-            class: `${p}-debris`,
-            cx: from.x,
-            cy: from.y,
-            r: (0.6 + dr() * 1.4) * shrink,
-            fill: b.color ?? stemColor,
-            style: style({
-              "--dx": `${fmt(dir * (30 + dr() * 70) * shrink)}px`,
-              "--dy": `${fmt((dr() - 0.75) * 50 * shrink)}px`,
-              "animation-delay": at(hit + dr() * 0.08),
-              "animation-duration": sec(0.7 + dr() * 0.7),
-            }),
-          })}/>`,
-        );
-      }
-    });
     charsOut.push({ s: c.s, base, inner });
 
     // ---- Spores ----
@@ -736,17 +742,6 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
             }),
           })}>${markup}</g>`;
         }
-        for (const b of blasts) {
-          const dir = b.direction === "left" ? 1 : -1;
-          markup = `<g${attrs({
-            class: `${p}-push`,
-            style: style({
-              "--px": `${fmt(dir * (8 + sr() * 16) * shrink)}px`,
-              "--py": `${fmt(-(sr() * 8) * shrink)}px`,
-              "animation-delay": at(b.hits[qk]!),
-            }),
-          })}>${markup}</g>`;
-        }
         if (grow) {
           markup = `<g${attrs({
             class: `${p}-fade`,
@@ -765,8 +760,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       tip: anchorPt,
       rotation,
       growDelay: delay,
-      wilt: u,
-      blastHit: blast ? q.hit : undefined,
+      wilt: clamp(u, 0, 1),
       outline: glyphHull(q),
     });
   }
@@ -809,13 +803,8 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     })}/>`;
   }
 
-  // ---- Blast debris ----
-  const blastMarkup = debrisOut.length
-    ? `<g class="${p}-debris-layer">${debrisOut.join("")}</g>`
-    : "";
-
   const title = o.title === false ? null : (o.title ?? o.text);
-  const animated = Boolean(grow || sway || blast);
+  const animated = Boolean(grow || sway);
   const svg =
     `<svg${attrs({
       xmlns: "http://www.w3.org/2000/svg",
@@ -832,7 +821,6 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     pathMarkup +
     `<g class="${p}-chars">${charGroups.join("")}</g>` +
     (sporesOut.length ? `<g class="${p}-spores">${sporesOut.join("")}</g>` : "") +
-    blastMarkup +
     `</svg>`;
 
   return {

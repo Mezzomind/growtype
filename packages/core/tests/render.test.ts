@@ -71,7 +71,8 @@ describe("growtype", () => {
   });
 
   test("avoidOverlap keeps neighbouring glyphs apart", () => {
-    const strong = { ...opts, text: "spores of thought", tilt: 35, twist: 20, wilt: 3 as const };
+    // Slightly damaged: further gone, collapsed sprouts are left to pile up where they fall.
+    const strong = { ...opts, text: "spores of thought", tilt: 35, twist: 20, wilt: 1 as const };
     let before = 0;
     let after = 0;
     for (let seed = 1; seed <= 12; seed++) {
@@ -170,13 +171,12 @@ describe("growtype", () => {
     expect(delays[delays.length - 1]!).toBeGreaterThan(delays[0]!);
   });
 
-  test("wilt droops and shrinks glyphs while staying close to upright", () => {
+  test("wilt droops and shrinks glyphs", () => {
     const flat = { ...opts, path: "M0 200 L500 200", tilt: 0, twist: 0 };
     const full = growtype({ ...flat, wilt: "full" });
     const wilted = growtype({ ...flat, wilt: "wilted" });
     for (const [i, c] of wilted.characters.entries()) {
-      expect(Math.abs(c.rotation)).toBeGreaterThan(Math.abs(full.characters[i]!.rotation));
-      expect(Math.abs(c.rotation)).toBeLessThan(40);
+      expect(Math.abs(c.rotation)).toBeGreaterThan(Math.abs(full.characters[i]!.rotation) + 45);
     }
     expect(wilted.svg).toContain("scale(0.9");
   });

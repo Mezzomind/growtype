@@ -57,28 +57,6 @@ function useFonts() {
   return { files, cssReady, error, addUpload };
 }
 
-/** Smoothly tween a number towards a target. */
-function useTween(target: number, ms = 700): number {
-  const [value, setValue] = useState(target);
-  const from = useRef(target);
-  useEffect(() => {
-    const start = performance.now();
-    const v0 = from.current;
-    let raf = 0;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / ms);
-      const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
-      const v = v0 + (target - v0) * e;
-      from.current = v;
-      setValue(v);
-      if (t < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, ms]);
-  return value;
-}
-
 export function App() {
   const [s, setS] = useState<Settings>(INITIAL);
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
@@ -86,10 +64,6 @@ export function App() {
   const { files, cssReady, error: fontError, addUpload } = useFonts();
   const [drawing, setDrawing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-
-  const wiltTarget = WILT_STAGES.indexOf(s.wilt);
-  // Without the blast, wilt changes ease in instead.
-  const tweened = useTween(wiltTarget);
 
   const pathData = useMemo(() => {
     if (s.path.kind === "custom") return s.path.d;
@@ -112,14 +86,14 @@ export function App() {
     const {
       fontUrl: _fontUrl,
       font: _font,
-      blastOnWiltChange: _blast,
+      wiltTransition: _transition,
       restartOnChange: _restart,
       ...rest
     } = config;
-    return { ...rest, font, wilt: s.blastOnWilt ? wiltTarget : tweened };
-  }, [config, font, s.blastOnWilt, wiltTarget, tweened]);
+    return { ...rest, font };
+  }, [config, font]);
 
-  const g = useGrowtype(options, { blastOnWiltChange: config.blastOnWiltChange });
+  const g = useGrowtype(options, { wiltTransition: config.wiltTransition });
   const result = g.result;
   const replay = g.replay;
   const exportSvg = g.toSVG;
@@ -400,26 +374,29 @@ export function App() {
             onChange={(v) => set("wilt", v)}
           />
           <Toggle
-            label="Blast on change"
-            checked={s.blastOnWilt}
-            onChange={(v) => set("blastOnWilt", v)}
+            label="Animate changes"
+            checked={s.animateWilt}
+            onChange={(v) => set("animateWilt", v)}
           />
-          {s.blastOnWilt && (
+          {s.animateWilt && (
             <>
-              <Segmented
-                label="Blast from"
-                value={s.blastFrom}
-                options={["left", "right"] as const}
-                labels={{ left: "Left", right: "Right" }}
-                onChange={(v) => set("blastFrom", v)}
+              <Slider
+                label="Duration"
+                value={s.wiltDuration}
+                min={0.2}
+                max={4}
+                step={0.1}
+                unit="s"
+                onChange={(v) => set("wiltDuration", v)}
               />
               <Slider
-                label="Blast force"
-                value={s.blastStrength}
+                label="Stagger"
+                value={s.wiltStagger}
                 min={0}
-                max={60}
-                unit="°"
-                onChange={(v) => set("blastStrength", v)}
+                max={3}
+                step={0.1}
+                unit="s"
+                onChange={(v) => set("wiltStagger", v)}
               />
             </>
           )}
@@ -566,12 +543,6 @@ export function App() {
         <div className="toolbar">
           <button type="button" onClick={replay}>
             ↻ Replay
-          </button>
-          <button
-            type="button"
-            onClick={() => g.blast({ direction: s.blastFrom, strength: s.blastStrength })}
-          >
-            💥 Blast
           </button>
           <button type="button" onClick={download} disabled={!result?.svg}>
             ⤓ Download SVG
