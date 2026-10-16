@@ -421,8 +421,15 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   const growStart = grow ? grow.delay + pathDrawTime : 0;
 
   // ---- Poses: how each sprout leans, how tall it stands and how wilted it is ----
-  const blast = o.blast ? { ...DEFAULTS.blast, ...o.blast } : null;
-  const fromWilt = blast?.fromWilt !== undefined ? wiltIndex(blast.fromWilt) : wilt;
+  // The blast, then any blasts it interrupted, newest first. Each one wilts sprouts towards the
+  // stage its successor started from.
+  const blasts: Array<typeof DEFAULTS.blast & { to: number; from: number; hits: number[] }> = [];
+  for (let b = o.blast, to = wilt; b && blasts.length < 8; b = b.interrupts) {
+    const from = b.fromWilt !== undefined ? wiltIndex(b.fromWilt) : to;
+    blasts.push({ ...DEFAULTS.blast, ...b, to, from, hits: [] });
+    to = from;
+  }
+  const blast = blasts[0] ?? null;
   const stemHalf = thickness * shrink * 0.8;
 
   // Within a word, stem bases can huddle closer together than the glyphs they hold up.
@@ -490,20 +497,22 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     };
   });
 
-  // ---- Blast wave: when the front reaches each sprout, and the wilt it shows at timeOffset ----
-  let blastOrigin: Point | null = null;
-  let blastReach = 0;
-  if (blast && poses.length) {
+  // ---- Blast waves: when each front reaches each sprout ----
+  const shocks: Array<{ origin: Point; reach: number }> = [];
+  if (poses.length) {
     const xs = poses.map((q) => q.base.x);
     const midY =
       poses.reduce((acc, q) => acc + q.base.y + q.normal.y * q.length * 0.6, 0) / poses.length;
-    blastOrigin = {
-      x: blast.direction === "left" ? Math.min(...xs) - fontSize : Math.max(...xs) + fontSize,
-      y: midY,
-    };
-    blastReach = Math.max(...poses.map((q) => dist(blastOrigin!, q.base)), 1);
-    for (const q of poses)
-      q.hit = blast.at + (blast.duration * dist(blastOrigin, q.base)) / blastReach;
+    for (const b of blasts) {
+      const origin = {
+        x: b.direction === "left" ? Math.min(...xs) - fontSize : Math.max(...xs) + fontSize,
+        y: midY,
+      };
+      const reach = Math.max(...poses.map((q) => dist(origin, q.base)), 1);
+      b.hits = poses.map((q) => b.at + (b.duration * dist(origin, q.base)) / reach);
+      shocks.push({ origin, reach });
+    }
+    if (blast) poses.forEach((q, k) => (q.hit = blast.hits[k]!));
   }
   // ---- Placement: wilt each sprout, then nudge neighbours apart ----
   // Overlaps are only resolved for sprouts at rest. A blast glides each sprout from its resting
@@ -527,21 +536,26 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   };
   if (blast) {
     // Blast frames are re-rendered many times a second with only `blast` and `timeOffset`
-    // changing, so both resting placements are remembered between calls.
+    // changing, so the resting placements are remembered between calls.
     const key = placementKey(o);
-    const from = cachedPlacement(`${key}|${fromWilt}`, () => settle(fromWilt));
-    const to = cachedPlacement(`${key}|${wilt}`, () => settle(wilt));
-    poses.forEach((q, k) => {
-      const t = smoothstep((timeOffset - q.hit) / 0.35);
-      const a = from[k]!;
-      const b = to[k]!;
-      q.lean = lerp(a.lean, b.lean, t);
-      q.twist = lerp(a.twist, b.twist, t);
-      q.u = lerp(a.u, b.u, t);
-      q.droop = lerp(a.droop, b.droop, t);
-      // Fractional while blending, so a sprout drooping the other way swings through upright.
-      q.droopSign = lerp(a.droopSign, b.droopSign, t);
-    });
+    const rest = (w: number) => cachedPlacement(`${key}|${w}`, () => settle(w));
+    // Where blast `n` has sprout `k` at timeOffset: wherever the blast it interrupted had it (or
+    // resting at its starting wilt) until the front arrives, then gliding to rest at its wilt.
+    const placementIn = (n: number, k: number): Placement => {
+      const b = blasts[n]!;
+      const a = n + 1 < blasts.length ? placementIn(n + 1, k) : rest(b.from)[k]!;
+      const z = rest(b.to)[k]!;
+      const t = smoothstep((timeOffset - b.hits[k]!) / 0.35);
+      return {
+        lean: lerp(a.lean, z.lean, t),
+        twist: lerp(a.twist, z.twist, t),
+        u: lerp(a.u, z.u, t),
+        droop: lerp(a.droop, z.droop, t),
+        // Fractional while blending, so a sprout drooping the other way swings through upright.
+        droopSign: lerp(a.droopSign, z.droopSign, t),
+      };
+    };
+    poses.forEach((q, k) => Object.assign(q, placementIn(0, k)));
   } else {
     settle(wilt).forEach((pl, k) => Object.assign(poses[k]!, pl));
   }
@@ -553,7 +567,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   const placed: PlacedCharacter[] = [];
   let growEndAll = 0;
 
-  for (const q of poses) {
+  for (const [qk, q] of poses.entries()) {
     const { c, base, tangent, normal, u, anchorLocal } = q;
     const i = c.index;
     const r = (ch: string) => rng.value(i, ch);
@@ -655,21 +669,23 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
         }),
       })}>${inner}</g>`;
     }
-    if (blast) {
-      const dir = blast.direction === "left" ? 1 : -1;
-      const k = blast.strength * dir * (0.75 + 0.5 * r("blast"));
+    // One knock-back per blast still playing, so an interrupted blast's recoil plays out.
+    blasts.forEach((b, n) => {
+      const dir = b.direction === "left" ? 1 : -1;
+      const k = b.strength * dir * (0.75 + 0.5 * r("blast"));
+      const hit = b.hits[qk]!;
       inner = `<g${attrs({
         class: `${p}-blast`,
         style: style({
           "--k": `${fmt(k)}deg`,
           "transform-origin": origin(base),
-          "animation-delay": at(q.hit),
-          "animation-duration": sec(blast.recoil),
+          "animation-delay": at(hit),
+          "animation-duration": sec(b.recoil),
         }),
       })}>${inner}</g>`;
       // Debris knocked loose by the shock front.
-      const dr = rng.stream(i, "debris");
-      for (let k2 = 0; k2 < blast.debris; k2++) {
+      const dr = rng.stream(i, n ? `debris${n}` : "debris");
+      for (let k2 = 0; k2 < b.debris; k2++) {
         const from = add(base, scale(normal, q.length * dr()));
         debrisOut.push(
           `<circle${attrs({
@@ -677,17 +693,17 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
             cx: from.x,
             cy: from.y,
             r: (0.6 + dr() * 1.4) * shrink,
-            fill: blast.color ?? stemColor,
+            fill: b.color ?? stemColor,
             style: style({
               "--dx": `${fmt(dir * (30 + dr() * 70) * shrink)}px`,
               "--dy": `${fmt((dr() - 0.75) * 50 * shrink)}px`,
-              "animation-delay": at(q.hit + dr() * 0.08),
+              "animation-delay": at(hit + dr() * 0.08),
               "animation-duration": sec(0.7 + dr() * 0.7),
             }),
           })}/>`,
         );
       }
-    }
+    });
     charsOut.push({ s: c.s, base, inner });
 
     // ---- Spores ----
@@ -725,14 +741,14 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
             }),
           })}>${markup}</g>`;
         }
-        if (blast) {
-          const dir = blast.direction === "left" ? 1 : -1;
+        for (const b of blasts) {
+          const dir = b.direction === "left" ? 1 : -1;
           markup = `<g${attrs({
             class: `${p}-push`,
             style: style({
               "--px": `${fmt(dir * (8 + sr() * 16) * shrink)}px`,
               "--py": `${fmt(-(sr() * 8) * shrink)}px`,
-              "animation-delay": at(q.hit),
+              "animation-delay": at(b.hits[qk]!),
             }),
           })}>${markup}</g>`;
         }
@@ -798,34 +814,37 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     })}/>`;
   }
 
-  // ---- Blast shock ring ----
+  // ---- Blast shock rings ----
   let blastMarkup = "";
-  if (blast && blastOrigin) {
-    const color = blast.color ?? stemColor;
+  blasts.forEach((b, n) => {
+    const shock = shocks[n];
+    if (!shock) return;
+    const color = b.color ?? stemColor;
+    const id = n ? `${p}-shock${n}` : `${p}-shock`;
     defs.push(
-      `<radialGradient id="${p}-shock">` +
+      `<radialGradient id="${id}">` +
         `<stop offset="0" stop-color="${esc(color)}" stop-opacity="0"/>` +
         `<stop offset=".72" stop-color="${esc(color)}" stop-opacity="0"/>` +
         `<stop offset=".94" stop-color="${esc(color)}" stop-opacity=".35"/>` +
         `<stop offset="1" stop-color="${esc(color)}" stop-opacity="0"/>` +
         `</radialGradient>`,
     );
-    const reach = blastReach * 1.15;
-    blastMarkup =
+    const { origin: o0, reach } = shock;
+    blastMarkup +=
       `<g${attrs({
         class: `${p}-ring`,
         style: style({
-          "--r": String(fmt(reach)),
-          "transform-origin": origin(blastOrigin),
-          "animation-delay": at(blast.at),
-          "animation-duration": sec(blast.duration * 1.15),
+          "--r": String(fmt(reach * 1.15)),
+          "transform-origin": origin(o0),
+          "animation-delay": at(b.at),
+          "animation-duration": sec(b.duration * 1.15),
         }),
       })}>` +
-      `<circle${attrs({ cx: blastOrigin.x, cy: blastOrigin.y, r: 1, fill: `url(#${p}-shock)` })}/>` +
-      `<circle${attrs({ cx: blastOrigin.x, cy: blastOrigin.y, r: 1, fill: "none", stroke: color, "stroke-width": 1.5, "vector-effect": "non-scaling-stroke", opacity: 0.6 })}/>` +
-      `</g>` +
-      (debrisOut.length ? `<g class="${p}-debris-layer">${debrisOut.join("")}</g>` : "");
-  }
+      `<circle${attrs({ cx: o0.x, cy: o0.y, r: 1, fill: `url(#${id})` })}/>` +
+      `<circle${attrs({ cx: o0.x, cy: o0.y, r: 1, fill: "none", stroke: color, "stroke-width": 1.5, "vector-effect": "non-scaling-stroke", opacity: 0.6 })}/>` +
+      `</g>`;
+  });
+  if (debrisOut.length) blastMarkup += `<g class="${p}-debris-layer">${debrisOut.join("")}</g>`;
 
   const title = o.title === false ? null : (o.title ?? o.text);
   const animated = Boolean(grow || sway || blast);

@@ -77,6 +77,47 @@ describe("<Growtype> in the browser", () => {
     expect(host.innerHTML).not.toMatch(/-ring"/);
   });
 
+  test("the new wilt never shows before its blast does", async () => {
+    let setWilt: (w: GrowtypeProps["wilt"]) => void = () => {};
+    const frames: string[] = [];
+    function App() {
+      const [wilt, set] = useState<GrowtypeProps["wilt"]>("full");
+      setWilt = set;
+      return (
+        <Growtype
+          {...base}
+          wilt={wilt}
+          blastOnWiltChange={{ duration: 0.2, recoil: 0.2 }}
+          onRender={(r) => frames.push(r.svg)}
+        />
+      );
+    }
+    await mount(<App />);
+    await act(async () => setWilt("wilted"));
+    // The first render after the change already carries the blast, rather than snapping every
+    // sprout to the new wilt for a frame before the wave sets off.
+    expect(frames[1]).toMatch(/-ring"/);
+  });
+
+  test("a blast fired mid-blast carries on from where the first left off", async () => {
+    let setWilt: (w: GrowtypeProps["wilt"]) => void = () => {};
+    const frames: string[] = [];
+    function App() {
+      const [wilt, set] = useState<GrowtypeProps["wilt"]>("full");
+      setWilt = set;
+      return (
+        <Growtype {...base} wilt={wilt} blastOnWiltChange onRender={(r) => frames.push(r.svg)} />
+      );
+    }
+    await mount(<App />);
+    // Separate acts, so the second change lands while the first blast is still playing.
+    act(() => setWilt("wilted"));
+    act(() => setWilt("full"));
+    await act(async () => new Promise((r) => setTimeout(r, 100)));
+    // Both waves play: the second interrupts the first instead of replacing it.
+    expect(frames.some((f) => f.match(/-ring"/g)?.length === 2)).toBe(true);
+  }, 10000);
+
   test("no blast when blastOnWiltChange is off", async () => {
     let setWilt: (w: GrowtypeProps["wilt"]) => void = () => {};
     const frames: string[] = [];

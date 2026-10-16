@@ -58,6 +58,12 @@ export interface BlastOptions {
    * changes to `wilt`. Evaluated at `timeOffset`, so re-render while the blast plays to see it sweep.
    */
   fromWilt?: WiltStage | number;
+  /**
+   * A blast still playing when this one started (its target wilt is this blast's `fromWilt`).
+   * Each sprout carries on wherever that blast has it until this front arrives, so a wave fired
+   * mid-wave picks every sprout up from where it is; both knock-backs play out.
+   */
+  interrupts?: BlastOptions;
 }
 
 export interface SporeOptions {
@@ -244,8 +250,8 @@ export const DEFAULTS = {
     strength: 22,
     recoil: 1.6,
     debris: 3,
-  } as Required<Omit<BlastOptions, "fromWilt" | "color">> &
-    Pick<BlastOptions, "fromWilt" | "color">,
+  } as Required<Omit<BlastOptions, "fromWilt" | "color" | "interrupts">> &
+    Pick<BlastOptions, "fromWilt" | "color" | "interrupts">,
   spores: { count: 2.5, size: 1.4, spread: 0.9 },
   path: { width: 2, opacity: 1 },
 };

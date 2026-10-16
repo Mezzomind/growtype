@@ -35,6 +35,16 @@ export interface UseGrowtypeResult {
 const DEFAULT_BLAST = { duration: 1.1, recoil: 1.6 };
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
+/** Seconds on the timeline when a blast and its recoil are over. */
+const blastEnd = (b: BlastOptions): number =>
+  (b.at ?? 0) + (b.duration ?? DEFAULT_BLAST.duration) + (b.recoil ?? DEFAULT_BLAST.recoil) + 0.3;
+
+/** The part of a blast chain still playing at time `t` (finished blasts dropped). */
+function stillPlaying(b: BlastOptions | null | undefined, t: number): BlastOptions | undefined {
+  if (!b || blastEnd(b) < t) return undefined;
+  return { ...b, interrupts: stillPlaying(b.interrupts, t) };
+}
+
 const fontIds = new WeakMap<object, number>();
 let nextFontId = 1;
 
@@ -82,39 +92,59 @@ export function useGrowtype(
 
   const [replayKey, setReplayKey] = useState(0);
   const [frame, setFrame] = useState(0);
-  const [blast, setBlast] = useState<BlastOptions | null>(null);
-  const raf = useRef(0);
-  useEffect(() => () => cancelAnimationFrame(raf.current), []);
+  // The blast playing, if any. Held in a ref so a wilt change can start one in the same render
+  // that sees it (see below); `frame` re-renders whenever it changes.
+  const blastRef = useRef<BlastOptions | null>(null);
 
-  const fireBlast = useCallback<UseGrowtypeResult["blast"]>(
-    (overrides = {}) => {
-      const cfg = { ...DEFAULT_BLAST, ...blastCfgRef.current, ...overrides };
+  const makeBlast = useCallback(
+    (overrides: Parameters<UseGrowtypeResult["blast"]>[0] = {}): BlastOptions => {
       const at = timeline() + 0.05;
-      setBlast({ ...cfg, at, fromWilt: overrides.fromWilt ?? optionsRef.current?.wilt });
-      // Re-render every frame while it plays, so each sprout's wilt changes as the front passes.
-      cancelAnimationFrame(raf.current);
-      const end = at + cfg.duration + cfg.recoil + 0.3;
-      const tick = () => {
-        if (timeline() > end) {
-          setBlast(null);
-          return;
-        }
-        setFrame((f) => f + 1);
-        raf.current = requestAnimationFrame(tick);
+      return {
+        ...DEFAULT_BLAST,
+        ...blastCfgRef.current,
+        ...overrides,
+        at,
+        fromWilt: overrides.fromWilt ?? optionsRef.current?.wilt,
+        // A blast still playing carries on until this front reaches each sprout, so nothing
+        // jumps back to rest first.
+        interrupts: stillPlaying(blastRef.current, at),
       };
-      raf.current = requestAnimationFrame(tick);
     },
     [timeline],
   );
 
+  const fireBlast = useCallback<UseGrowtypeResult["blast"]>(
+    (overrides) => {
+      blastRef.current = makeBlast(overrides);
+      setFrame((f) => f + 1);
+    },
+    [makeBlast],
+  );
+
+  // Start the blast while rendering the wilt change, not in an effect afterwards: otherwise that
+  // render shows every sprout already at the new wilt, before the wave has reached it.
   const wilt = options ? wiltIndex(options.wilt) : 0;
   const prevWilt = useRef(wilt);
-  useEffect(() => {
-    if (prevWilt.current === wilt) return;
+  if (prevWilt.current !== wilt) {
     const from = prevWilt.current;
     prevWilt.current = wilt;
-    if (blastCfgRef.current) fireBlast({ fromWilt: from });
-  }, [wilt, fireBlast]);
+    if (blastCfg) blastRef.current = makeBlast({ fromWilt: from });
+  }
+  const blast = blastRef.current;
+
+  // Re-render every frame while it plays, so each sprout's wilt changes as the front passes.
+  useEffect(() => {
+    if (!blast) return;
+    let end = 0;
+    for (let b: BlastOptions | undefined = blast; b; b = b.interrupts)
+      end = Math.max(end, blastEnd(b));
+    let raf = requestAnimationFrame(function tick() {
+      if (timeline() > end && blastRef.current === blast) blastRef.current = null;
+      setFrame((f) => f + 1);
+      if (blastRef.current === blast) raf = requestAnimationFrame(tick);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [blast, timeline]);
 
   const prevKey = useRef(key);
   const rendered = useMemo(() => {

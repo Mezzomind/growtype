@@ -59,6 +59,25 @@ describe("blast wave", () => {
     close(at(3), pose(growtype({ ...tilted, wilt: "wilted" })));
   });
 
+  test("a blast that interrupts another picks each sprout up where it is", () => {
+    const tilted = { ...opts, tilt: 25, twist: 15, seed: 3 };
+    const first = { direction: "left" as const, at: 0, duration: 1, fromWilt: "full" as const };
+    const pose = (r: ReturnType<typeof growtype>) =>
+      r.characters.map((c) => [c.rotation, c.tip.x, c.tip.y, c.wilt]);
+    for (const t of [0.3, 0.6, 1.2]) {
+      // At the moment the second blast fires, nothing moves: some sprouts are still fresh, some
+      // mid-wilt, some wilted, and each stays exactly where the first blast had it.
+      const shown = growtype({ ...tilted, wilt: "wilted", blast: first, timeOffset: t });
+      const second = { at: t, fromWilt: "wilted" as const, interrupts: first };
+      const chained = growtype({ ...tilted, wilt: "full", blast: second, timeOffset: t });
+      const a = pose(shown);
+      pose(chained).forEach((row, i) => row.forEach((v, j) => expect(v).toBeCloseTo(a[i]![j]!, 6)));
+      // Both shock rings and both knock-backs play.
+      expect(chained.svg.match(/-ring"/g)?.length).toBe(2);
+      expect(chained.svg.match(/-blast"/g)?.length).toBe(chained.characters.length * 2);
+    }
+  });
+
   test("no blast markup unless requested", () => {
     expect(growtype(opts).svg).not.toContain("-ring");
   });
