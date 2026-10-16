@@ -46,6 +46,19 @@ describe("blast wave", () => {
     expect(sorted[sorted.length - 1]!.wilt).toBe(0);
   });
 
+  test("starts and ends on the resting placements, so nothing jumps", () => {
+    const tilted = { ...opts, tilt: 25, twist: 15, seed: 3 };
+    const blast = { direction: "left" as const, at: 0, duration: 1, fromWilt: "full" as const };
+    const pose = (r: ReturnType<typeof growtype>) =>
+      r.characters.map((c) => [c.rotation, c.tip.x, c.tip.y, c.wilt]);
+    const at = (timeOffset: number) =>
+      pose(growtype({ ...tilted, wilt: "wilted", blast, timeOffset }));
+    const close = (a: number[][], b: number[][]) =>
+      a.forEach((row, i) => row.forEach((v, j) => expect(v).toBeCloseTo(b[i]![j]!, 6)));
+    close(at(-0.5), pose(growtype({ ...tilted, wilt: "full" })));
+    close(at(3), pose(growtype({ ...tilted, wilt: "wilted" })));
+  });
+
   test("no blast markup unless requested", () => {
     expect(growtype(opts).svg).not.toContain("-ring");
   });

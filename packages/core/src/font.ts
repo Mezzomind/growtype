@@ -10,9 +10,12 @@ const rectHull = (x1: number, y1: number, x2: number, y2: number): Point[] => [
 
 /**
  * Glyph caches are keyed by font size, and sizes shrunk to fit are arbitrary fractions, so a
- * long-lived font would otherwise keep every glyph at every size it was ever drawn at.
+ * long-lived font would otherwise keep every glyph at every size it was ever drawn at. A render
+ * uses a few dozen distinct characters at one or two sizes (the requested one, and the one it
+ * shrank to); the limit leaves room for that several times over, so a render never evicts its
+ * own glyphs.
  */
-const GLYPH_CACHE_LIMIT = 2048;
+const GLYPH_CACHE_LIMIT = 256;
 
 /** Look up a cached glyph, marking it recently used. */
 function cacheGet(cache: Map<string, GlyphInfo>, key: string): GlyphInfo | undefined {

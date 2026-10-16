@@ -141,6 +141,7 @@ interface Pose {
   u: number;
   /** Droop magnitude in degrees (from wilt); direction is `droopSign`. */
   droop: number;
+  /** ±1, or in between while a blast blends between two resting placements. */
   droopSign: number;
   anchorLocal: Point;
   /** When the blast front reaches this sprout. */
@@ -270,6 +271,45 @@ function resolveOverlaps(poses: Pose[], o: { fontSize: number; stemHalf: number 
     }
     if (!moved) break;
   }
+}
+
+/** The parts of a pose that wilting and overlap resolution decide. */
+type Placement = Pick<Pose, "lean" | "twist" | "u" | "droop" | "droopSign">;
+
+const fontIds = new WeakMap<object, number>();
+let nextFontId = 1;
+
+/** Identifies everything that decides where sprouts rest: all options but the blast's timing. */
+function placementKey(o: GrowtypeOptions): string {
+  const { blast: _blast, timeOffset: _timeOffset, ...rest } = o;
+  return JSON.stringify(rest, (_key, value: unknown) => {
+    // Font objects (parsed fonts, adapters) are compared by identity.
+    if (
+      value &&
+      typeof value === "object" &&
+      typeof (value as { glyph?: unknown }).glyph === "function"
+    ) {
+      let id = fontIds.get(value);
+      if (!id) fontIds.set(value, (id = nextFontId++));
+      return `font#${id}`;
+    }
+    return value;
+  });
+}
+
+const placements = new Map<string, Placement[]>();
+
+/** A small cache of resting placements: enough for the two ends of a few blasts in flight. */
+function cachedPlacement(key: string, compute: () => Placement[]): Placement[] {
+  let hit = placements.get(key);
+  if (hit) {
+    placements.delete(key);
+  } else {
+    hit = compute();
+    if (placements.size >= 8) placements.delete(placements.keys().next().value!);
+  }
+  placements.set(key, hit);
+  return hit;
 }
 
 const smoothstep = (t: number) => {
@@ -465,17 +505,45 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     for (const q of poses)
       q.hit = blast.at + (blast.duration * dist(blastOrigin, q.base)) / blastReach;
   }
-  for (const q of poses) {
-    const r = (ch: string) => rng.value(q.c.index, ch);
-    const w = blast ? lerp(fromWilt, wilt, smoothstep((timeOffset - q.hit) / 0.35)) : wilt;
-    // Per-character jitter fades in with the first stage so fractional wilt tweens smoothly from 0.
-    q.u = clamp(w / 3 + (r("wilt") - 0.5) * 0.22 * Math.min(1, w), 0, 1);
-    q.droop = q.u * 13 * (0.75 + 0.5 * r("droop"));
-  }
-
-  // ---- Keep neighbours from overlapping ----
-  if ((o.avoidOverlap ?? DEFAULTS.avoidOverlap) && poses.length > 1) {
-    resolveOverlaps(poses, { fontSize, stemHalf });
+  // ---- Placement: wilt each sprout, then nudge neighbours apart ----
+  // Overlaps are only resolved for sprouts at rest. A blast glides each sprout from its resting
+  // placement at the old wilt to the one at the new wilt, and may overlap a little on the way.
+  const avoidOverlap = (o.avoidOverlap ?? DEFAULTS.avoidOverlap) && poses.length > 1;
+  const settle = (w: number): Placement[] => {
+    const settled = poses.map((q) => {
+      const r = (ch: string) => rng.value(q.c.index, ch);
+      // Per-character jitter fades in with the first stage so fractional wilt tweens smoothly from 0.
+      const u = clamp(w / 3 + (r("wilt") - 0.5) * 0.22 * Math.min(1, w), 0, 1);
+      return { ...q, u, droop: u * 13 * (0.75 + 0.5 * r("droop")) };
+    });
+    if (avoidOverlap) resolveOverlaps(settled, { fontSize, stemHalf });
+    return settled.map(({ lean, twist, u, droop, droopSign }) => ({
+      lean,
+      twist,
+      u,
+      droop,
+      droopSign,
+    }));
+  };
+  if (blast) {
+    // Blast frames are re-rendered many times a second with only `blast` and `timeOffset`
+    // changing, so both resting placements are remembered between calls.
+    const key = placementKey(o);
+    const from = cachedPlacement(`${key}|${fromWilt}`, () => settle(fromWilt));
+    const to = cachedPlacement(`${key}|${wilt}`, () => settle(wilt));
+    poses.forEach((q, k) => {
+      const t = smoothstep((timeOffset - q.hit) / 0.35);
+      const a = from[k]!;
+      const b = to[k]!;
+      q.lean = lerp(a.lean, b.lean, t);
+      q.twist = lerp(a.twist, b.twist, t);
+      q.u = lerp(a.u, b.u, t);
+      q.droop = lerp(a.droop, b.droop, t);
+      // Fractional while blending, so a sprout drooping the other way swings through upright.
+      q.droopSign = lerp(a.droopSign, b.droopSign, t);
+    });
+  } else {
+    settle(wilt).forEach((pl, k) => Object.assign(poses[k]!, pl));
   }
 
   const defs: string[] = [];
