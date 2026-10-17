@@ -18,6 +18,10 @@ export interface Settings {
   animateWilt: boolean;
   wiltDuration: number;
   wiltStagger: number;
+  animateText: boolean;
+  textDuration: number;
+  textStagger: number;
+  textDirection: "start" | "end" | "random";
   inset: number;
   side: "left" | "right";
   anchor: "baseline" | "ink";
@@ -71,6 +75,10 @@ export const INITIAL: Settings = {
   animateWilt: true,
   wiltDuration: 1.4,
   wiltStagger: 0.8,
+  animateText: true,
+  textDuration: 1.2,
+  textStagger: 0.6,
+  textDirection: "start",
   inset: 20,
   side: "left",
   anchor: "baseline",

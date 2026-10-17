@@ -16,6 +16,7 @@ import {
 import { type LaidOutChar, layoutText } from "./layout.ts";
 import {
   DEFAULTS,
+  type ExitOptions,
   type GrowOptions,
   type GrowtypeOptions,
   type PathStyle,
@@ -25,7 +26,7 @@ import {
   wiltIndex,
 } from "./options.ts";
 import { OffsetArcMap, PathSampler } from "./path.ts";
-import { Random, hashString } from "./random.ts";
+import { Random, hashString, normalizeSeed } from "./random.ts";
 import { buildStem } from "./stem.ts";
 
 /** Where one character ended up. */
@@ -92,7 +93,7 @@ function opt<T extends object>(v: boolean | T | undefined, defaults: T): Require
   return { ...defaults, ...(v === true ? {} : v) } as Required<T>;
 }
 
-function css(p: string): string {
+function css(p: string, exit: boolean): string {
   return [
     `.${p} .${p}-stretch,.${p} .${p}-sway,.${p} .${p}-gust,.${p} .${p}-pop,.${p} .${p}-spore{transform-box:view-box}`,
     `.${p}-reveal{animation:${p}-reveal .8s cubic-bezier(.4,0,.3,1) both}`,
@@ -109,8 +110,23 @@ function css(p: string): string {
     `@keyframes ${p}-sway{0%,100%{transform:rotate(0)}25%{transform:rotate(var(--a))}75%{transform:rotate(calc(var(--a) * -1))}}`,
     `@keyframes ${p}-gust{0%{transform:rotate(0)}10%{transform:rotate(var(--g))}22%{transform:rotate(calc(var(--g) * -.35))}32%{transform:rotate(calc(var(--g) * .12))}42%,100%{transform:rotate(0)}}`,
     `@keyframes ${p}-drift{0%,100%{transform:translate(0,0)}50%{transform:translate(var(--dx),var(--dy))}}`,
+    // Leaving: the glyph hops off its stalk and falls, tumbling, out of view; the stalk flops to
+    // one side and shrinks back into its foot; spores fade.
+    ...(exit ? exitCss(p) : []),
     `@media (prefers-reduced-motion:reduce){.${p} *{animation:none!important}}`,
   ].join("");
+}
+
+function exitCss(p: string): string[] {
+  return [
+    `.${p} .${p}-drop,.${p} .${p}-wither{transform-box:view-box}`,
+    `.${p}-drop{animation:${p}-drop 1s linear both}`,
+    `.${p}-wither{animation:${p}-wither 1s cubic-bezier(.5,0,.8,.5) both}`,
+    `.${p}-vanish{animation:${p}-vanish .6s ease-in both}`,
+    `@keyframes ${p}-drop{0%{transform:translate(0,0) rotate(0);opacity:1;animation-timing-function:cubic-bezier(.2,.6,.4,1)}14%{transform:translate(calc(var(--fx) * .08),calc(var(--fh) * -1)) rotate(calc(var(--fr) * .08));animation-timing-function:cubic-bezier(.55,0,1,.5)}75%{opacity:1}100%{transform:translate(var(--fx),var(--fy)) rotate(var(--fr));opacity:0}}`,
+    `@keyframes ${p}-wither{0%{transform:rotate(0) rotate(var(--ax)) scale(1,1) rotate(calc(var(--ax) * -1))}45%{transform:rotate(calc(var(--wr) * .75)) rotate(var(--ax)) scale(1,.8) rotate(calc(var(--ax) * -1))}100%{transform:rotate(var(--wr)) rotate(var(--ax)) scale(.6,.001) rotate(calc(var(--ax) * -1))}}`,
+    `@keyframes ${p}-vanish{to{opacity:0}}`,
+  ];
 }
 
 interface Pose {
@@ -285,7 +301,13 @@ let nextFontId = 1;
 
 /** Identifies everything that decides where sprouts rest: all options but a transition's. */
 function placementKey(o: GrowtypeOptions): string {
-  const { wiltTransition: _transition, timeOffset: _timeOffset, ...rest } = o;
+  const {
+    wiltTransition: _transition,
+    textTransition: _textTransition,
+    exit: _exit,
+    timeOffset: _timeOffset,
+    ...rest
+  } = o;
   return JSON.stringify(rest, (_key, value: unknown) => {
     // Font objects (parsed fonts, adapters) are compared by identity.
     if (
@@ -332,7 +354,32 @@ function springEase(t: number): number {
 
 /** Render text growing out of a path. Returns the SVG and layout details. */
 export function growtype(options: GrowtypeOptions): GrowtypeResult {
-  const o = options;
+  const tt = options.textTransition;
+  if (!tt || tt.from === options.text) return render(options).result;
+  const exit = { ...DEFAULTS.exit, ...tt };
+  const end = exit.at + exit.stagger + exit.duration;
+  // Both texts share one stylesheet, so they share a prefix.
+  const idPrefix = options.idPrefix ?? prefixOf(options);
+  const leaving = (options.timeOffset ?? 0) < end;
+  const incoming = render({ ...options, idPrefix }, { growAt: end, exitCss: leaving });
+  if (!leaving) return incoming.result;
+  // The old text's sprouts go first, underneath the new text's.
+  const { body } = render({ ...options, text: tt.from, idPrefix, exit });
+  const chars = `<g class="${idPrefix}-chars">`;
+  return { ...incoming.result, svg: incoming.result.svg.replace(chars, body + chars) };
+}
+
+const prefixOf = (o: GrowtypeOptions) =>
+  `gt${(hashString(`${normalizeSeed(o.seed)}|${o.text}`) % 46656).toString(36)}`;
+
+/**
+ * Render one text. Text coming in after another grows from `growAt` seconds into the timeline
+ * (even without `grow`), under a path that's already drawn.
+ */
+function render(
+  o: GrowtypeOptions,
+  incoming?: { growAt: number; exitCss: boolean },
+): { result: GrowtypeResult; body: string } {
   const font = toFontAdapter(o.font, o.emojiFont, o.emojiScale ?? DEFAULTS.emojiScale);
   const sampler = new PathSampler(o.path);
   const rng = new Random(o.seed);
@@ -354,11 +401,13 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   const wilt = wiltIndex(o.wilt);
   const glyphColor = o.glyphColor ?? DEFAULTS.glyphColor;
   const stemColor = o.stemColor ?? DEFAULTS.stemColor;
-  const grow = opt<GrowOptions>(o.grow, DEFAULTS.grow);
+  const pathGrow = opt<GrowOptions>(o.grow, DEFAULTS.grow);
+  const grow = incoming ? opt<GrowOptions>(o.grow || true, DEFAULTS.grow) : pathGrow;
   const sway = opt<SwayOptions>(o.sway, DEFAULTS.sway);
   const wave = sway ? opt<WaveOptions>(sway.wave, DEFAULTS.wave) : null;
   const spores = opt<SporeOptions>(o.spores, DEFAULTS.spores);
   const pathStyle = opt<PathStyle>(o.showPath, DEFAULTS.path);
+  const exit = opt<ExitOptions>(o.exit, DEFAULTS.exit);
   const timeOffset = o.timeOffset ?? 0;
   /** An animation delay, shifted so the SVG starts `timeOffset` seconds into its timeline. */
   const at = (t: number) => sec(t - timeOffset);
@@ -402,7 +451,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     fieldWaves.reduce((acc, w) => acc + Math.sin((s / w.wavelength) * Math.PI * 2 + w.phase), 0) /
       4.5;
 
-  const p = o.idPrefix ?? `gt${(hashString(`${rng.seed}|${o.text}`) % 46656).toString(36)}`;
+  const p = o.idPrefix ?? prefixOf(o);
   const visible = layout.chars.filter((c) => !c.isSpace);
 
   // ---- Grow ordering ----
@@ -431,7 +480,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     [...visible].sort((a, b) => key(a) - key(b)).forEach((c, rank) => order.set(c.index, rank));
   }
   const pathDrawTime = grow && pathStyle ? grow.pathDuration : 0;
-  const growStart = grow ? grow.delay + pathDrawTime : 0;
+  const growStart = incoming ? incoming.growAt + grow!.delay : grow ? grow.delay + pathDrawTime : 0;
 
   // ---- Poses: how each sprout leans, how tall it stands and how wilted it is ----
   // The wilt transition, then any it interrupted, newest first. Each one heads for the stage
@@ -515,17 +564,16 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     };
   });
 
-  // ---- Transitions: when each sprout sets off, in turn along the path ----
-  if (poses.length) {
-    const s0 = Math.min(...poses.map((q) => q.sBase));
-    const span = Math.max(...poses.map((q) => q.sBase)) - s0 || 1;
-    for (const tr of transitions) {
-      tr.starts = poses.map((q) => {
-        const f = (q.sBase - s0) / span;
-        return tr.at + tr.stagger * (tr.direction === "end" ? 1 - f : f);
-      });
-    }
-  }
+  // ---- Transitions and exit: when each sprout sets off, in turn along the path ----
+  const s0 = Math.min(...poses.map((q) => q.sBase));
+  const span = Math.max(...poses.map((q) => q.sBase)) - s0 || 1;
+  const inTurn = (t: { at: number; stagger: number; direction: "start" | "end" | "random" }) =>
+    poses.map((q) => {
+      const f = t.direction === "random" ? rng.value(q.c.index, "turn") : (q.sBase - s0) / span;
+      return t.at + t.stagger * (t.direction === "end" ? 1 - f : f);
+    });
+  for (const tr of transitions) tr.starts = inTurn(tr);
+  const exitStarts = exit ? inTurn(exit) : [];
 
   // ---- Placement: wilt each sprout, then nudge neighbours apart ----
   // Overlaps are only resolved for sprouts at rest. A transition moves each sprout from where it
@@ -597,7 +645,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   const placed: PlacedCharacter[] = [];
   let growEndAll = 0;
 
-  for (const q of poses) {
+  poses.forEach((q, k) => {
     const { c, base, tangent, normal, u, anchorLocal } = q;
     const i = c.index;
     const r = (ch: string) => rng.value(i, ch);
@@ -681,7 +729,40 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
           "animation-duration": sec(dur * 0.4),
         })
       : undefined;
-    const glyphGroup = `<g${attrs({ class: grow ? `${p}-pop` : undefined, style: popStyle })}>${glyphMarkup}</g>`;
+    let glyphGroup = `<g${attrs({ class: grow ? `${p}-pop` : undefined, style: popStyle })}>${glyphMarkup}</g>`;
+
+    // ---- Exit ----
+    const exitAt = exit ? exitStarts[k]! : 0;
+    if (exit) {
+      // The glyph pops off its stalk and drops (down the screen, whichever way the path runs)
+      // until it's out of view, tumbling towards the side it slumps to.
+      const centre = add(anchorPt, scale(tipDir, fontSize * 0.35));
+      const side = q.droopSign < 0 ? -1 : 1;
+      glyphGroup = `<g${attrs({
+        class: `${p}-drop`,
+        style: style({
+          "--fx": `${fmt(side * (0.2 + r("exit-x")) * fontSize * 0.8)}px`,
+          "--fh": `${fmt((0.1 + 0.15 * r("exit-hop")) * fontSize)}px`,
+          "--fy": `${fmt(Math.max(o.height - centre.y, 0) + fontSize * 1.2)}px`,
+          "--fr": `${fmt(side * (40 + 120 * r("exit-spin")))}deg`,
+          "transform-origin": origin(centre),
+          "animation-delay": at(exitAt),
+          "animation-duration": sec(exit.duration * 0.75),
+        }),
+      })}>${glyphGroup}</g>`;
+      // As soon as the glyph lets go, its stalk flops over the other way and shrinks back into
+      // its foot, while the glyph is still falling.
+      stemMarkup = `<g${attrs({
+        class: `${p}-wither`,
+        style: style({
+          "--ax": `${fmt(angleDeg(sub(anchorPt, base)) - 90)}deg`,
+          "--wr": `${fmt(-side * (25 + 30 * r("exit-wilt")))}deg`,
+          "transform-origin": origin(base),
+          "animation-delay": at(exitAt + exit.duration * 0.1),
+          "animation-duration": sec(exit.duration * 0.75),
+        }),
+      })}>${stemMarkup}</g>`;
+    }
 
     // ---- Sway ----
     let inner = stemMarkup + glyphGroup;
@@ -750,6 +831,15 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
             style: style({ "animation-delay": at(growEnd + sr() * 0.5) }),
           })}>${markup}</g>`;
         }
+        if (exit) {
+          markup = `<g${attrs({
+            class: `${p}-vanish`,
+            style: style({
+              "animation-delay": at(exitAt + sr() * 0.2),
+              "animation-duration": sec(exit.duration * 0.5),
+            }),
+          })}>${markup}</g>`;
+        }
         sporesOut.push(markup);
       }
     }
@@ -765,7 +855,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       wilt: clamp(u, 0, 1),
       outline: glyphHull(q),
     });
-  }
+  });
 
   // ---- Assemble characters (with optional travelling gust) ----
   const charGroups = charsOut.map((c) => {
@@ -786,7 +876,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   let pathMarkup = "";
   if (pathStyle) {
     pathMarkup = `<path${attrs({
-      class: grow ? `${p}-reveal` : undefined,
+      class: pathGrow ? `${p}-reveal` : undefined,
       d: sampler.data,
       fill: "none",
       stroke: pathStyle.color ?? stemColor,
@@ -794,19 +884,22 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       "stroke-linecap": "round",
       "stroke-linejoin": "round",
       opacity: pathStyle.opacity === 1 ? undefined : pathStyle.opacity,
-      pathLength: grow ? 1 : undefined,
-      "stroke-dasharray": grow ? "1 1" : undefined,
-      style: grow
+      pathLength: pathGrow ? 1 : undefined,
+      "stroke-dasharray": pathGrow ? "1 1" : undefined,
+      style: pathGrow
         ? style({
-            "animation-delay": at(grow.delay),
-            "animation-duration": sec(Math.max(0.01, grow.pathDuration)),
+            "animation-delay": at(pathGrow.delay),
+            "animation-duration": sec(Math.max(0.01, pathGrow.pathDuration)),
           })
         : undefined,
     })}/>`;
   }
 
   const title = o.title === false ? null : (o.title ?? o.text);
-  const animated = Boolean(grow || sway);
+  const animated = Boolean(grow || sway || exit);
+  const body =
+    `<g class="${p}-chars">${charGroups.join("")}</g>` +
+    (sporesOut.length ? `<g class="${p}-spores">${sporesOut.join("")}</g>` : "");
   const svg =
     `<svg${attrs({
       xmlns: "http://www.w3.org/2000/svg",
@@ -818,19 +911,21 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       "aria-label": title ?? undefined,
     })}>` +
     (title ? `<title>${esc(title)}</title>` : "") +
-    (animated ? `<style>${css(p)}</style>` : "") +
+    (animated ? `<style>${css(p, Boolean(exit || incoming?.exitCss))}</style>` : "") +
     (o.background ? `<rect width="100%" height="100%" fill="${esc(o.background)}"/>` : "") +
     pathMarkup +
-    `<g class="${p}-chars">${charGroups.join("")}</g>` +
-    (sporesOut.length ? `<g class="${p}-spores">${sporesOut.join("")}</g>` : "") +
+    body +
     `</svg>`;
 
   return {
-    svg,
-    fontSize,
-    pathLength: sampler.length,
-    characters: placed,
-    growDuration: grow ? growEndAll + 0.5 : 0,
+    result: {
+      svg,
+      fontSize,
+      pathLength: sampler.length,
+      characters: placed,
+      growDuration: grow ? growEndAll + 0.5 : 0,
+    },
+    body,
   };
 }
 

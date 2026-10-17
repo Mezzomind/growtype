@@ -4,6 +4,7 @@ export { useGrowtype, optionsKey } from "./useGrowtype.ts";
 export type {
   UseGrowtypeResult,
   UseGrowtypeSettings,
+  TextTransitionSettings,
   WiltTransitionSettings,
 } from "./useGrowtype.ts";
 export { useFont, preloadFont } from "./font.ts";

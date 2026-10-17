@@ -152,3 +152,54 @@ describe("<Growtype> in the browser", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("changing text", () => {
+  /** A component whose text the test can change, recording every render. */
+  function retextable(props: Partial<GrowtypeProps> = {}) {
+    const frames: GrowtypeResult[] = [];
+    const control = { setText: (_t: string) => {} };
+    function App() {
+      const [text, set] = useState("spores");
+      control.setText = set;
+      return <Growtype {...base} {...props} text={text} onRender={(r) => frames.push(r)} />;
+    }
+    return { App, frames, control };
+  }
+  const text = (r: GrowtypeResult) => r.characters.map((c) => c.char).join("");
+  /** How many glyphs are dropping away. */
+  const drops = (r: GrowtypeResult) => r.svg.match(/-drop"/g)?.length ?? 0;
+  const exit = { duration: 0.2, stagger: 0.1 };
+
+  test("the old text drops away, then the new text grows in", async () => {
+    const { App, frames, control } = retextable({ grow: true, textTransition: exit });
+    await mount(<App />);
+    act(() => control.setText("mould"));
+    // The old text leaves in the same render as the change…
+    const first = frames.at(-1)!;
+    expect(drops(first)).toBe(6);
+    // …and the new text grows once it has gone, not already grown.
+    expect(text(first)).toBe("mould");
+    expect(Math.min(...first.characters.map((c) => c.growDelay))).toBeGreaterThan(0.25);
+    await act(async () => new Promise((r) => setTimeout(r, 450)));
+    // Then the spent markup is dropped.
+    expect(drops(frames.at(-1)!)).toBe(0);
+  });
+
+  test("changes made while text is leaving wait for it, and the latest one grows", async () => {
+    const { App, frames, control } = retextable({ textTransition: exit });
+    await mount(<App />);
+    act(() => control.setText("mo"));
+    act(() => control.setText("mould"));
+    // Still "spores" leaving (not "mo"), with "mould" to follow.
+    expect(drops(frames.at(-1)!)).toBe(6);
+    expect(text(frames.at(-1)!)).toBe("mould");
+  });
+
+  test("swaps instantly when textTransition is off", async () => {
+    const { App, frames, control } = retextable({ textTransition: false });
+    await mount(<App />);
+    await act(async () => control.setText("mould"));
+    expect(text(frames.at(-1)!)).toBe("mould");
+    expect(frames.at(-1)!.characters.every((c) => c.growDelay === 0)).toBe(true);
+  });
+});

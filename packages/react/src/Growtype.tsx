@@ -13,7 +13,9 @@ import { type UseGrowtypeSettings, useGrowtype } from "./useGrowtype.ts";
 
 /** Everything you can configure as plain data (what the playground's config export produces). */
 export interface GrowtypeConfig
-  extends Omit<GrowtypeOptions, "font" | "timeOffset" | "wiltTransition">, UseGrowtypeSettings {
+  extends
+    Omit<GrowtypeOptions, "font" | "timeOffset" | "wiltTransition" | "textTransition" | "exit">,
+    UseGrowtypeSettings {
   /** URL of a font file (TTF / OTF / WOFF) to embed as glyph outlines. */
   fontUrl?: string;
   /** A CSS font family (or `{ family, weight, style }`) to use instead of a font file. */
@@ -58,6 +60,7 @@ export const Growtype = forwardRef<GrowtypeHandle, GrowtypeProps>(function Growt
     font,
     fontUrl,
     wiltTransition,
+    textTransition,
     restartOnChange,
     responsive = true,
     className,
@@ -71,7 +74,7 @@ export const Growtype = forwardRef<GrowtypeHandle, GrowtypeProps>(function Growt
   const loaded = useFont(fontUrl);
   const resolved = fontUrl ? loaded.font : (font ?? "serif");
   const growOptions: GrowtypeOptions | null = resolved ? { ...options, font: resolved } : null;
-  const g = useGrowtype(growOptions, { wiltTransition, restartOnChange });
+  const g = useGrowtype(growOptions, { wiltTransition, textTransition, restartOnChange });
 
   // Replay remounts the SVG: its markup can be identical to what's shown (both start at time 0),
   // and the browser only restarts CSS animations for new elements.

@@ -1,6 +1,7 @@
 import {
   type GrowtypeOptions,
   type GrowtypeResult,
+  type TextTransition,
   type WiltTransition,
   growtype,
   wiltIndex,
@@ -10,12 +11,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 /** How wilt changes animate (which stage it starts from, and when, are filled in for you). */
 export type WiltTransitionSettings = Omit<WiltTransition, "from" | "at" | "interrupts">;
 
+/** How the old text leaves when `text` changes (when it leaves is filled in for you). */
+export type TextTransitionSettings = Omit<TextTransition, "from" | "at">;
+
 export interface UseGrowtypeSettings {
   /**
    * Animate each change of `wilt`: sprouts sink (or spring back up) one after another along the
    * path. `false` changes stage instantly. Default true.
    */
   wiltTransition?: boolean | WiltTransitionSettings;
+  /**
+   * Animate each change of `text`: the old glyphs fall off their stalks and drop away while the
+   * stalks wilt back into the path, then the new text grows in. `false` swaps instantly.
+   * Default true.
+   */
+  textTransition?: boolean | TextTransitionSettings;
   /**
    * Restart the animation timeline whenever the options change. By default animations continue
    * where they are, so tweaking props mid-animation doesn't make anything jump.
@@ -35,6 +45,7 @@ export interface UseGrowtypeResult {
 
 /** The core's defaults, so the hook knows when a transition is over. */
 const DEFAULT_TRANSITION = { duration: 1.4, stagger: 0.8 };
+const DEFAULT_EXIT = { duration: 1.2, stagger: 0.6 };
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 /** Seconds on the timeline when every sprout has settled after a transition. */
@@ -51,6 +62,10 @@ function stillPlaying(
   if (!t || transitionEnd(t) < at) return undefined;
   return { ...t, interrupts: stillPlaying(t.interrupts, at) };
 }
+
+/** Seconds on the timeline when the old text has gone. */
+const exitEnd = (t: TextTransition): number =>
+  (t.at ?? 0) + (t.stagger ?? DEFAULT_EXIT.stagger) + (t.duration ?? DEFAULT_EXIT.duration);
 
 const fontIds = new WeakMap<object, number>();
 let nextFontId = 1;
@@ -120,6 +135,40 @@ export function useGrowtype(
   }
   const transition = transitionRef.current;
 
+  // Text changes: the text on show leaves, then the new text grows in. Decided during render, like
+  // wilt changes, so the new text never shows for a frame before the old one has gone.
+  const textCfg =
+    settings.textTransition === false || settings.restartOnChange
+      ? null
+      : typeof settings.textTransition === "object"
+        ? settings.textTransition
+        : {};
+  const textRef = useRef<{ text: string; transition?: TextTransition } | null>(null);
+  if (options) {
+    const prev = textRef.current;
+    if (!prev || !textCfg) textRef.current = { text: options.text };
+    else if (prev.text !== options.text) {
+      const at = timeline();
+      // While the old text is still leaving, the newest text just takes the next one's place.
+      const leaving = prev.transition && at < exitEnd(prev.transition);
+      textRef.current = {
+        text: options.text,
+        transition: leaving ? prev.transition : { ...textCfg, from: prev.text, at },
+      };
+    }
+  }
+  const textTransition = textRef.current?.transition;
+
+  // Re-render once the old text has gone, so its spent markup is dropped.
+  useEffect(() => {
+    if (!textTransition) return;
+    const timer = setTimeout(
+      () => setFrame((f) => f + 1),
+      (exitEnd(textTransition) - timeline()) * 1000 + 20,
+    );
+    return () => clearTimeout(timer);
+  }, [textTransition, timeline]);
+
   // Re-render every frame while it plays, so each sprout moves on in turn.
   useEffect(() => {
     if (!transition) return;
@@ -144,6 +193,7 @@ export function useGrowtype(
       return {
         result: growtype({
           ...opts,
+          textTransition: textTransition ?? opts.textTransition,
           wiltTransition: transition ?? opts.wiltTransition,
           timeOffset: timeline(),
         }),
@@ -152,10 +202,11 @@ export function useGrowtype(
     } catch (e) {
       return { result: null, error: e instanceof Error ? e : new Error(String(e)) };
     }
-  }, [key, replayKey, frame, transition, settings.restartOnChange, timeline]);
+  }, [key, replayKey, frame, transition, textTransition, settings.restartOnChange, timeline]);
 
   const replay = useCallback(() => {
     epoch.current = now();
+    if (textRef.current) textRef.current = { text: textRef.current.text };
     setReplayKey((k) => k + 1);
   }, []);
 

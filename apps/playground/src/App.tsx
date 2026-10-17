@@ -87,13 +87,17 @@ export function App() {
       fontUrl: _fontUrl,
       font: _font,
       wiltTransition: _transition,
+      textTransition: _textTransition,
       restartOnChange: _restart,
       ...rest
     } = config;
     return { ...rest, font };
   }, [config, font]);
 
-  const g = useGrowtype(options, { wiltTransition: config.wiltTransition });
+  const g = useGrowtype(options, {
+    wiltTransition: config.wiltTransition,
+    textTransition: config.textTransition,
+  });
   const result = g.result;
   const replay = g.replay;
   const exportSvg = g.toSVG;
@@ -440,6 +444,39 @@ export function App() {
                 value={s.growOrder}
                 options={["auto", "start", "end", "center", "random"] as const}
                 onChange={(v) => set("growOrder", v)}
+              />
+            </>
+          )}
+          <Toggle
+            label="Animate text changes"
+            checked={s.animateText}
+            onChange={(v) => set("animateText", v)}
+          />
+          {s.animateText && (
+            <>
+              <Slider
+                label="Exit duration"
+                value={s.textDuration}
+                min={0.2}
+                max={4}
+                step={0.1}
+                unit="s"
+                onChange={(v) => set("textDuration", v)}
+              />
+              <Slider
+                label="Exit stagger"
+                value={s.textStagger}
+                min={0}
+                max={3}
+                step={0.1}
+                unit="s"
+                onChange={(v) => set("textStagger", v)}
+              />
+              <Segmented
+                label="Exit order"
+                value={s.textDirection}
+                options={["start", "end", "random"] as const}
+                onChange={(v) => set("textDirection", v)}
               />
             </>
           )}

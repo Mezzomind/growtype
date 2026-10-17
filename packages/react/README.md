@@ -31,17 +31,18 @@ export function Hero({ stage }: { stage: "full" | "wilted" }) {
 
 It takes every [`growtype` option](../core#options) as a prop, plus:
 
-| Prop                 | Default   |                                                                                                                                                                               |
-| -------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fontUrl`            | –         | Font file (TTF / OTF / WOFF) to load and embed as glyph outlines. Cached and shared between components.                                                                       |
-| `font`               | `"serif"` | Alternatively a loaded font (`await loadFont(url)`), a CSS family, or `{ family, weight, style }`.                                                                            |
-| `wiltTransition`     | `true`    | Animate each change of `wilt`: sprouts sink (or spring back up) one after another along the path. `{ duration, stagger, direction }` to tune it, `false` to change instantly. |
-| `restartOnChange`    | `false`   | Restart animations when props change. By default they continue where they are, so changing props mid-animation never jumps.                                                   |
-| `responsive`         | `true`    | Scale to the container's width, keeping the aspect ratio.                                                                                                                     |
-| `fallback`           | `null`    | Rendered while `fontUrl` loads.                                                                                                                                               |
-| `className`, `style` | –         | Applied to the wrapping `<div>`.                                                                                                                                              |
-| `onRender(result)`   | –         | Layout details after each render (`fontSize`, per-character positions…).                                                                                                      |
-| `onError(error)`     | –         | Font loading or rendering failed.                                                                                                                                             |
+| Prop                 | Default   |                                                                                                                                                                                                             |
+| -------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fontUrl`            | –         | Font file (TTF / OTF / WOFF) to load and embed as glyph outlines. Cached and shared between components.                                                                                                     |
+| `font`               | `"serif"` | Alternatively a loaded font (`await loadFont(url)`), a CSS family, or `{ family, weight, style }`.                                                                                                          |
+| `wiltTransition`     | `true`    | Animate each change of `wilt`: sprouts sink (or spring back up) one after another along the path. `{ duration, stagger, direction }` to tune it, `false` to change instantly.                               |
+| `textTransition`     | `true`    | Animate each change of `text`: the old glyphs fall off their stalks while the stalks wilt away, then the new text grows in. `{ duration, stagger, direction }` to tune the exit, `false` to swap instantly. |
+| `restartOnChange`    | `false`   | Restart animations when props change. By default they continue where they are, so changing props mid-animation never jumps.                                                                                 |
+| `responsive`         | `true`    | Scale to the container's width, keeping the aspect ratio.                                                                                                                                                   |
+| `fallback`           | `null`    | Rendered while `fontUrl` loads.                                                                                                                                                                             |
+| `className`, `style` | –         | Applied to the wrapping `<div>`.                                                                                                                                                                            |
+| `onRender(result)`   | –         | Layout details after each render (`fontSize`, per-character positions…).                                                                                                                                    |
+| `onError(error)`     | –         | Font loading or rendering failed.                                                                                                                                                                           |
 
 A `ref` gives you `replay()` and `toSVG()` (a standalone SVG string whose animations start from
 zero).
@@ -65,7 +66,7 @@ const config = {
 
 ## Hooks
 
-- `useGrowtype(options, { wiltTransition, restartOnChange })` – the engine behind `<Growtype>`:
+- `useGrowtype(options, { wiltTransition, textTransition, restartOnChange })` – the engine behind `<Growtype>`:
   returns `{ result, error, replay, toSVG }` for rendering the SVG yourself.
 - `useFont(url)` – `{ font, error, loading }`; `preloadFont(url)` warms the cache early.
 

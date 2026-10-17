@@ -7,6 +7,11 @@
   mid-transition picks each sprout up from where it is.
 - Wilt stages are far more pronounced: glyphs sink lower on buckling stalks at each stage,
   slumping a little to either side while staying readable, and wilted sprouts stop swaying.
+- `exit` animates the sprouts away: in turn along the path, each glyph falls off its stalk and
+  drops out of view while the stalk wilts and shrinks back into the path; `direction: "random"`
+  sends them in no particular order.
+- `textTransition: { from, at }` animates a change of text: the old text leaves, then the new
+  text grows in under the path that's already drawn.
 - Faster rendering (overlap resolution and SVG output), and glyph caches are bounded.
 
 ## 0.1.0
