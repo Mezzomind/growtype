@@ -80,8 +80,13 @@ sprout carries on from wherever it is.
 `exit: true` (or `{ at, duration, stagger, direction }`) animates the sprouts away, one after
 another along the path (from its `start` or `end`, or in `random` order): each glyph pops off its stalk and tumbles down out of view while the stalk
 flops over and shrinks back into its foot as soon as the glyph lets go. It's embedded CSS animation starting `at` seconds into
-the timeline (honouring `timeOffset`), and once it's over only the path is left. `growtype-react`
-plays it whenever `text` changes, then grows the new text in.
+the timeline (honouring `timeOffset`), and once it's over only the path is left.
+
+To change text, render the new `text` with `textTransition: { from, at }` (plus any exit
+settings): the `from` text leaves as above, then the new text grows in where it was, under the
+path that's already drawn. Keep re-rendering with an advancing `timeOffset` and the old text's
+markup is dropped once it has gone (`at + stagger + duration`). `growtype-react` does this for you
+whenever `text` changes.
 
 ## Emoji
 
@@ -124,6 +129,7 @@ don't apply to them.
 | `sway`                                    | `false`            | `true` or `{ amplitude, period, wave }`. Sprouts sway about their feet in a slow wave travelling along the path (neighbours move nearly together, so they don't swing into each other); `wave` adds gusts of wind.                                                          |
 | `wiltTransition`                          | –                  | `{ from, at, duration, stagger, direction, interrupts }`: animate from the `from` stage to `wilt`, sprout by sprout along the path from its `start` or `end`. See [Wilting](#wilting). Defaults: `duration` 1.4, `stagger` 0.8.                                             |
 | `exit`                                    | `false`            | `true` or `{ at, duration, stagger, direction }`: glyphs drop off their stalks, which wilt into the path. See [Exit](#exit). Defaults: `duration` 1.2, `stagger` 0.6.                                                                                                       |
+| `textTransition`                          | –                  | `{ from, at, duration, stagger, direction }`: the `from` text leaves (as `exit`), then `text` grows in. See [Exit](#exit).                                                                                                                                                  |
 | `glyphColor` / `palette`                  | `#24301a`          | `palette` picks a seeded colour per glyph.                                                                                                                                                                                                                                  |
 | `stemColor`                               | `#7c8f55`          |                                                                                                                                                                                                                                                                             |
 | `showPath`                                | `false`            | `true` or `{ color, width, opacity }`; draws itself first when growing.                                                                                                                                                                                                     |

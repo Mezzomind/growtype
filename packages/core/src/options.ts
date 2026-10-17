@@ -78,6 +78,15 @@ export interface ExitOptions {
   direction?: "start" | "end" | "random";
 }
 
+/**
+ * An animated change of text: the sprouts of the `from` text leave (see `exit`), then `text` grows
+ * in where they were. Evaluated at `timeOffset`, so keep passing it while it plays.
+ */
+export interface TextTransition extends ExitOptions {
+  /** The text it changes from. */
+  from: string;
+}
+
 export interface SporeOptions {
   /** Average spores per character. Default 2.5. */
   count?: number;
@@ -185,6 +194,8 @@ export interface GrowtypeOptions {
   wiltTransition?: WiltTransition;
   /** Animate the sprouts away: glyphs drop off their stalks, which wilt into the path. Default false. */
   exit?: boolean | ExitOptions;
+  /** Animate a change of text (`textTransition.from` → `text`): the old text leaves, then the new grows in. */
+  textTransition?: TextTransition;
   /**
    * Spacing of stem bases within a word relative to the glyphs, 0–1. Below 1 the bases huddle
    * towards the middle of each word and the stalks fan out to hold the glyphs at their normal

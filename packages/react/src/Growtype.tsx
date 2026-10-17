@@ -14,7 +14,7 @@ import { type UseGrowtypeSettings, useGrowtype } from "./useGrowtype.ts";
 /** Everything you can configure as plain data (what the playground's config export produces). */
 export interface GrowtypeConfig
   extends
-    Omit<GrowtypeOptions, "font" | "timeOffset" | "wiltTransition" | "exit">,
+    Omit<GrowtypeOptions, "font" | "timeOffset" | "wiltTransition" | "textTransition" | "exit">,
     UseGrowtypeSettings {
   /** URL of a font file (TTF / OTF / WOFF) to embed as glyph outlines. */
   fontUrl?: string;

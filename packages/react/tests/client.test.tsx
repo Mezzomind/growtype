@@ -166,21 +166,23 @@ describe("changing text", () => {
     return { App, frames, control };
   }
   const text = (r: GrowtypeResult) => r.characters.map((c) => c.char).join("");
+  /** How many glyphs are dropping away. */
+  const drops = (r: GrowtypeResult) => r.svg.match(/-drop"/g)?.length ?? 0;
   const exit = { duration: 0.2, stagger: 0.1 };
 
   test("the old text drops away, then the new text grows in", async () => {
     const { App, frames, control } = retextable({ grow: true, textTransition: exit });
     await mount(<App />);
     act(() => control.setText("mould"));
-    // Still the old text, now leaving.
-    expect(text(frames.at(-1)!)).toBe("spores");
-    expect(frames.at(-1)!.svg).toMatch(/-drop/);
+    // The old text leaves in the same render as the change…
+    const first = frames.at(-1)!;
+    expect(drops(first)).toBe(6);
+    // …and the new text grows once it has gone, not already grown.
+    expect(text(first)).toBe("mould");
+    expect(Math.min(...first.characters.map((c) => c.growDelay))).toBeGreaterThan(0.25);
     await act(async () => new Promise((r) => setTimeout(r, 450)));
-    const last = frames.at(-1)!;
-    expect(text(last)).toBe("mould");
-    expect(last.svg).not.toMatch(/-drop/);
-    // Growing from after the old text left, not already grown.
-    expect(Math.min(...last.characters.map((c) => c.growDelay))).toBeGreaterThan(0.25);
+    // Then the spent markup is dropped.
+    expect(drops(frames.at(-1)!)).toBe(0);
   });
 
   test("changes made while text is leaving wait for it, and the latest one grows", async () => {
@@ -188,10 +190,9 @@ describe("changing text", () => {
     await mount(<App />);
     act(() => control.setText("mo"));
     act(() => control.setText("mould"));
-    expect(text(frames.at(-1)!)).toBe("spores");
-    await act(async () => new Promise((r) => setTimeout(r, 450)));
+    // Still "spores" leaving (not "mo"), with "mould" to follow.
+    expect(drops(frames.at(-1)!)).toBe(6);
     expect(text(frames.at(-1)!)).toBe("mould");
-    expect(frames.some((f) => text(f) === "mo")).toBe(false);
   });
 
   test("swaps instantly when textTransition is off", async () => {

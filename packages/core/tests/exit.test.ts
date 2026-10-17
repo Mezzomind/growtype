@@ -67,3 +67,28 @@ describe("exit", () => {
     expect(still.svg).not.toMatch(/-drop|-wither/);
   });
 });
+
+describe("text transitions", () => {
+  const change = { ...opts, text: "mould", textTransition: { from: "spores", at: 1 } };
+  const end = 1 + 0.6 + 1.2;
+
+  test("the old text leaves, then the new text grows in under the drawn path", () => {
+    const r = growtype({ ...change, grow: true, showPath: true, timeOffset: 1 });
+    expect(delays(r.svg, "drop")).toHaveLength(6);
+    expect(r.characters.map((c) => c.char).join("")).toBe("mould");
+    expect(Math.min(...r.characters.map((c) => c.growDelay))).toBeGreaterThanOrEqual(end);
+    // The path keeps its own timing: drawn from the start, not again after the swap.
+    expect(r.svg).toMatch(/-reveal"[^>]*animation-delay:-1s/);
+  });
+
+  test("leaves no old text behind once it has gone", () => {
+    const r = growtype({ ...change, timeOffset: end + 0.1 });
+    expect(r.svg).not.toMatch(/-drop/);
+    expect(r.characters).toHaveLength(5);
+  });
+
+  test("does nothing when the text hasn't changed", () => {
+    const same = { ...opts, textTransition: { from: opts.text } };
+    expect(growtype(same).svg).toBe(growtype(opts).svg);
+  });
+});

@@ -26,7 +26,7 @@ import {
   wiltIndex,
 } from "./options.ts";
 import { OffsetArcMap, PathSampler } from "./path.ts";
-import { Random, hashString } from "./random.ts";
+import { Random, hashString, normalizeSeed } from "./random.ts";
 import { buildStem } from "./stem.ts";
 
 /** Where one character ended up. */
@@ -301,7 +301,13 @@ let nextFontId = 1;
 
 /** Identifies everything that decides where sprouts rest: all options but a transition's. */
 function placementKey(o: GrowtypeOptions): string {
-  const { wiltTransition: _transition, exit: _exit, timeOffset: _timeOffset, ...rest } = o;
+  const {
+    wiltTransition: _transition,
+    textTransition: _textTransition,
+    exit: _exit,
+    timeOffset: _timeOffset,
+    ...rest
+  } = o;
   return JSON.stringify(rest, (_key, value: unknown) => {
     // Font objects (parsed fonts, adapters) are compared by identity.
     if (
@@ -348,7 +354,32 @@ function springEase(t: number): number {
 
 /** Render text growing out of a path. Returns the SVG and layout details. */
 export function growtype(options: GrowtypeOptions): GrowtypeResult {
-  const o = options;
+  const tt = options.textTransition;
+  if (!tt || tt.from === options.text) return render(options).result;
+  const exit = { ...DEFAULTS.exit, ...tt };
+  const end = exit.at + exit.stagger + exit.duration;
+  // Both texts share one stylesheet, so they share a prefix.
+  const idPrefix = options.idPrefix ?? prefixOf(options);
+  const leaving = (options.timeOffset ?? 0) < end;
+  const incoming = render({ ...options, idPrefix }, { growAt: end, exitCss: leaving });
+  if (!leaving) return incoming.result;
+  // The old text's sprouts go first, underneath the new text's.
+  const { body } = render({ ...options, text: tt.from, idPrefix, exit });
+  const chars = `<g class="${idPrefix}-chars">`;
+  return { ...incoming.result, svg: incoming.result.svg.replace(chars, body + chars) };
+}
+
+const prefixOf = (o: GrowtypeOptions) =>
+  `gt${(hashString(`${normalizeSeed(o.seed)}|${o.text}`) % 46656).toString(36)}`;
+
+/**
+ * Render one text. Text coming in after another grows from `growAt` seconds into the timeline
+ * (even without `grow`), under a path that's already drawn.
+ */
+function render(
+  o: GrowtypeOptions,
+  incoming?: { growAt: number; exitCss: boolean },
+): { result: GrowtypeResult; body: string } {
   const font = toFontAdapter(o.font, o.emojiFont, o.emojiScale ?? DEFAULTS.emojiScale);
   const sampler = new PathSampler(o.path);
   const rng = new Random(o.seed);
@@ -370,7 +401,8 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   const wilt = wiltIndex(o.wilt);
   const glyphColor = o.glyphColor ?? DEFAULTS.glyphColor;
   const stemColor = o.stemColor ?? DEFAULTS.stemColor;
-  const grow = opt<GrowOptions>(o.grow, DEFAULTS.grow);
+  const pathGrow = opt<GrowOptions>(o.grow, DEFAULTS.grow);
+  const grow = incoming ? opt<GrowOptions>(o.grow || true, DEFAULTS.grow) : pathGrow;
   const sway = opt<SwayOptions>(o.sway, DEFAULTS.sway);
   const wave = sway ? opt<WaveOptions>(sway.wave, DEFAULTS.wave) : null;
   const spores = opt<SporeOptions>(o.spores, DEFAULTS.spores);
@@ -419,7 +451,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     fieldWaves.reduce((acc, w) => acc + Math.sin((s / w.wavelength) * Math.PI * 2 + w.phase), 0) /
       4.5;
 
-  const p = o.idPrefix ?? `gt${(hashString(`${rng.seed}|${o.text}`) % 46656).toString(36)}`;
+  const p = o.idPrefix ?? prefixOf(o);
   const visible = layout.chars.filter((c) => !c.isSpace);
 
   // ---- Grow ordering ----
@@ -448,7 +480,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
     [...visible].sort((a, b) => key(a) - key(b)).forEach((c, rank) => order.set(c.index, rank));
   }
   const pathDrawTime = grow && pathStyle ? grow.pathDuration : 0;
-  const growStart = grow ? grow.delay + pathDrawTime : 0;
+  const growStart = incoming ? incoming.growAt + grow!.delay : grow ? grow.delay + pathDrawTime : 0;
 
   // ---- Poses: how each sprout leans, how tall it stands and how wilted it is ----
   // The wilt transition, then any it interrupted, newest first. Each one heads for the stage
@@ -844,7 +876,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   let pathMarkup = "";
   if (pathStyle) {
     pathMarkup = `<path${attrs({
-      class: grow ? `${p}-reveal` : undefined,
+      class: pathGrow ? `${p}-reveal` : undefined,
       d: sampler.data,
       fill: "none",
       stroke: pathStyle.color ?? stemColor,
@@ -852,12 +884,12 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       "stroke-linecap": "round",
       "stroke-linejoin": "round",
       opacity: pathStyle.opacity === 1 ? undefined : pathStyle.opacity,
-      pathLength: grow ? 1 : undefined,
-      "stroke-dasharray": grow ? "1 1" : undefined,
-      style: grow
+      pathLength: pathGrow ? 1 : undefined,
+      "stroke-dasharray": pathGrow ? "1 1" : undefined,
+      style: pathGrow
         ? style({
-            "animation-delay": at(grow.delay),
-            "animation-duration": sec(Math.max(0.01, grow.pathDuration)),
+            "animation-delay": at(pathGrow.delay),
+            "animation-duration": sec(Math.max(0.01, pathGrow.pathDuration)),
           })
         : undefined,
     })}/>`;
@@ -865,6 +897,9 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
 
   const title = o.title === false ? null : (o.title ?? o.text);
   const animated = Boolean(grow || sway || exit);
+  const body =
+    `<g class="${p}-chars">${charGroups.join("")}</g>` +
+    (sporesOut.length ? `<g class="${p}-spores">${sporesOut.join("")}</g>` : "");
   const svg =
     `<svg${attrs({
       xmlns: "http://www.w3.org/2000/svg",
@@ -876,19 +911,21 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
       "aria-label": title ?? undefined,
     })}>` +
     (title ? `<title>${esc(title)}</title>` : "") +
-    (animated ? `<style>${css(p, Boolean(exit))}</style>` : "") +
+    (animated ? `<style>${css(p, Boolean(exit || incoming?.exitCss))}</style>` : "") +
     (o.background ? `<rect width="100%" height="100%" fill="${esc(o.background)}"/>` : "") +
     pathMarkup +
-    `<g class="${p}-chars">${charGroups.join("")}</g>` +
-    (sporesOut.length ? `<g class="${p}-spores">${sporesOut.join("")}</g>` : "") +
+    body +
     `</svg>`;
 
   return {
-    svg,
-    fontSize,
-    pathLength: sampler.length,
-    characters: placed,
-    growDuration: grow ? growEndAll + 0.5 : 0,
+    result: {
+      svg,
+      fontSize,
+      pathLength: sampler.length,
+      characters: placed,
+      growDuration: grow ? growEndAll + 0.5 : 0,
+    },
+    body,
   };
 }
 

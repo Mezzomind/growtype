@@ -8,6 +8,7 @@ export type {
   SporeOptions,
   WiltTransition,
   ExitOptions,
+  TextTransition,
   PathStyle,
   Justify,
   LayoutMode,
