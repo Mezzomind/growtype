@@ -1,4 +1,6 @@
 import {
+  type ExitOptions,
+  type GrowOptions,
   type GrowtypeOptions,
   type GrowtypeResult,
   type WiltTransition,
@@ -10,12 +12,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 /** How wilt changes animate (which stage it starts from, and when, are filled in for you). */
 export type WiltTransitionSettings = Omit<WiltTransition, "from" | "at" | "interrupts">;
 
+/** How the old text leaves when `text` changes (when it leaves is filled in for you). */
+export type TextTransitionSettings = Omit<ExitOptions, "at">;
+
 export interface UseGrowtypeSettings {
   /**
    * Animate each change of `wilt`: sprouts sink (or spring back up) one after another along the
    * path. `false` changes stage instantly. Default true.
    */
   wiltTransition?: boolean | WiltTransitionSettings;
+  /**
+   * Animate each change of `text`: the old glyphs fall off their stalks and drop away while the
+   * stalks wilt back into the path, then the new text grows in. `false` swaps instantly.
+   * Default true.
+   */
+  textTransition?: boolean | TextTransitionSettings;
   /**
    * Restart the animation timeline whenever the options change. By default animations continue
    * where they are, so tweaking props mid-animation doesn't make anything jump.
@@ -35,6 +46,7 @@ export interface UseGrowtypeResult {
 
 /** The core's defaults, so the hook knows when a transition is over. */
 const DEFAULT_TRANSITION = { duration: 1.4, stagger: 0.8 };
+const DEFAULT_EXIT = { duration: 1.2, stagger: 0.6 };
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 /** Seconds on the timeline when every sprout has settled after a transition. */
@@ -50,6 +62,26 @@ function stillPlaying(
 ): WiltTransition | undefined {
   if (!t || transitionEnd(t) < at) return undefined;
   return { ...t, interrupts: stillPlaying(t.interrupts, at) };
+}
+
+/** Text on show, and when on the timeline it started growing (null: as the options say). */
+interface Shown {
+  text: string;
+  growAt: number | null;
+}
+
+/** Text leaving, from `at` until `end`. */
+interface Leaving extends Shown {
+  exit: ExitOptions;
+  end: number;
+}
+
+/** Grow options for text that starts growing `growAt` seconds into the timeline. */
+function growFrom(grow: GrowtypeOptions["grow"], growAt: number | null): GrowtypeOptions["grow"] {
+  if (growAt === null) return grow;
+  const g: GrowOptions = typeof grow === "object" ? grow : {};
+  // The path is already drawn: the new text sprouts straight away.
+  return { ...g, delay: growAt + (g.delay ?? 0), pathDuration: 0 };
 }
 
 const fontIds = new WeakMap<object, number>();
@@ -120,6 +152,50 @@ export function useGrowtype(
   }
   const transition = transitionRef.current;
 
+  // Text changes: the text on show leaves, then the new text grows in. Decided during render, like
+  // wilt changes, so the new text never shows for a frame before the old one has gone.
+  const textCfg =
+    settings.textTransition === false || settings.restartOnChange
+      ? null
+      : typeof settings.textTransition === "object"
+        ? settings.textTransition
+        : {};
+  const shownRef = useRef<Shown | null>(null);
+  const leavingRef = useRef<Leaving | null>(null);
+  if (leavingRef.current && timeline() >= leavingRef.current.end) leavingRef.current = null;
+  if (options) {
+    const shown = shownRef.current;
+    if (!shown || !textCfg) {
+      if (shown?.text !== options.text) shownRef.current = { text: options.text, growAt: null };
+    } else if (shown.text !== options.text) {
+      // If text is already leaving, the new text just takes this one's place in the queue.
+      if (!leavingRef.current) {
+        const at = timeline();
+        const exit = { ...DEFAULT_EXIT, ...textCfg, at };
+        leavingRef.current = { ...shown, exit, end: at + exit.stagger + exit.duration };
+      }
+      shownRef.current = { text: options.text, growAt: leavingRef.current.end };
+    }
+  }
+  const leaving = leavingRef.current;
+
+  // Swap in the new text once the old has gone (the exit itself plays as CSS animation).
+  useEffect(() => {
+    if (!leaving) return;
+    let timer = setTimeout(
+      function check() {
+        if (timeline() < leaving.end) {
+          timer = setTimeout(check, 20);
+          return;
+        }
+        if (leavingRef.current === leaving) leavingRef.current = null;
+        setFrame((f) => f + 1);
+      },
+      (leaving.end - timeline()) * 1000,
+    );
+    return () => clearTimeout(timer);
+  }, [leaving, timeline]);
+
   // Re-render every frame while it plays, so each sprout moves on in turn.
   useEffect(() => {
     if (!transition) return;
@@ -140,10 +216,14 @@ export function useGrowtype(
     prevKey.current = key;
     const opts = optionsRef.current;
     if (!opts) return { result: null, error: null };
+    const showing = leaving ?? shownRef.current;
     try {
       return {
         result: growtype({
           ...opts,
+          text: showing?.text ?? opts.text,
+          grow: growFrom(opts.grow, showing?.growAt ?? null),
+          ...(leaving && { exit: leaving.exit }),
           wiltTransition: transition ?? opts.wiltTransition,
           timeOffset: timeline(),
         }),
@@ -152,10 +232,12 @@ export function useGrowtype(
     } catch (e) {
       return { result: null, error: e instanceof Error ? e : new Error(String(e)) };
     }
-  }, [key, replayKey, frame, transition, settings.restartOnChange, timeline]);
+  }, [key, replayKey, frame, transition, leaving, settings.restartOnChange, timeline]);
 
   const replay = useCallback(() => {
     epoch.current = now();
+    leavingRef.current = null;
+    if (shownRef.current) shownRef.current = { text: shownRef.current.text, growAt: null };
     setReplayKey((k) => k + 1);
   }, []);
 

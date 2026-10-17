@@ -75,6 +75,14 @@ const frame = () =>
 If the stage changes again mid-transition, pass the one still playing as `interrupts` and each
 sprout carries on from wherever it is.
 
+## Exit
+
+`exit: true` (or `{ at, duration, stagger, direction }`) animates the sprouts away, one after
+another along the path: each glyph pops off its stalk and tumbles down out of view while the stalk
+flops over and shrinks back into its foot. It's embedded CSS animation starting `at` seconds into
+the timeline (honouring `timeOffset`), and once it's over only the path is left. `growtype-react`
+plays it whenever `text` changes, then grows the new text in.
+
 ## Emoji
 
 Emoji can appear anywhere in the text. Text is split into user-perceived characters (grapheme
@@ -115,6 +123,7 @@ don't apply to them.
 | `grow`                                    | `false`            | `true` or `{ duration, stagger, delay, order, pathDuration }`. Foot blooms, stalk extends, glyph pops. `order: "auto"` follows the justification.                                                                                                                           |
 | `sway`                                    | `false`            | `true` or `{ amplitude, period, wave }`. Sprouts sway about their feet in a slow wave travelling along the path (neighbours move nearly together, so they don't swing into each other); `wave` adds gusts of wind.                                                          |
 | `wiltTransition`                          | –                  | `{ from, at, duration, stagger, direction, interrupts }`: animate from the `from` stage to `wilt`, sprout by sprout along the path from its `start` or `end`. See [Wilting](#wilting). Defaults: `duration` 1.4, `stagger` 0.8.                                             |
+| `exit`                                    | `false`            | `true` or `{ at, duration, stagger, direction }`: glyphs drop off their stalks, which wilt into the path. See [Exit](#exit). Defaults: `duration` 1.2, `stagger` 0.6.                                                                                                       |
 | `glyphColor` / `palette`                  | `#24301a`          | `palette` picks a seeded colour per glyph.                                                                                                                                                                                                                                  |
 | `stemColor`                               | `#7c8f55`          |                                                                                                                                                                                                                                                                             |
 | `showPath`                                | `false`            | `true` or `{ color, width, opacity }`; draws itself first when growing.                                                                                                                                                                                                     |

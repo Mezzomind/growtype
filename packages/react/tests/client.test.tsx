@@ -152,3 +152,53 @@ describe("<Growtype> in the browser", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("changing text", () => {
+  /** A component whose text the test can change, recording every render. */
+  function retextable(props: Partial<GrowtypeProps> = {}) {
+    const frames: GrowtypeResult[] = [];
+    const control = { setText: (_t: string) => {} };
+    function App() {
+      const [text, set] = useState("spores");
+      control.setText = set;
+      return <Growtype {...base} {...props} text={text} onRender={(r) => frames.push(r)} />;
+    }
+    return { App, frames, control };
+  }
+  const text = (r: GrowtypeResult) => r.characters.map((c) => c.char).join("");
+  const exit = { duration: 0.2, stagger: 0.1 };
+
+  test("the old text drops away, then the new text grows in", async () => {
+    const { App, frames, control } = retextable({ grow: true, textTransition: exit });
+    await mount(<App />);
+    act(() => control.setText("mould"));
+    // Still the old text, now leaving.
+    expect(text(frames.at(-1)!)).toBe("spores");
+    expect(frames.at(-1)!.svg).toMatch(/-drop/);
+    await act(async () => new Promise((r) => setTimeout(r, 450)));
+    const last = frames.at(-1)!;
+    expect(text(last)).toBe("mould");
+    expect(last.svg).not.toMatch(/-drop/);
+    // Growing from after the old text left, not already grown.
+    expect(Math.min(...last.characters.map((c) => c.growDelay))).toBeGreaterThan(0.25);
+  });
+
+  test("changes made while text is leaving wait for it, and the latest one grows", async () => {
+    const { App, frames, control } = retextable({ textTransition: exit });
+    await mount(<App />);
+    act(() => control.setText("mo"));
+    act(() => control.setText("mould"));
+    expect(text(frames.at(-1)!)).toBe("spores");
+    await act(async () => new Promise((r) => setTimeout(r, 450)));
+    expect(text(frames.at(-1)!)).toBe("mould");
+    expect(frames.some((f) => text(f) === "mo")).toBe(false);
+  });
+
+  test("swaps instantly when textTransition is off", async () => {
+    const { App, frames, control } = retextable({ textTransition: false });
+    await mount(<App />);
+    await act(async () => control.setText("mould"));
+    expect(text(frames.at(-1)!)).toBe("mould");
+    expect(frames.at(-1)!.characters.every((c) => c.growDelay === 0)).toBe(true);
+  });
+});

@@ -7,6 +7,7 @@ export type {
   WaveOptions,
   SporeOptions,
   WiltTransition,
+  ExitOptions,
   PathStyle,
   Justify,
   LayoutMode,
