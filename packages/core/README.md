@@ -78,8 +78,8 @@ sprout carries on from wherever it is.
 ## Exit
 
 `exit: true` (or `{ at, duration, stagger, direction }`) animates the sprouts away, one after
-another along the path: each glyph pops off its stalk and tumbles down out of view while the stalk
-flops over and shrinks back into its foot. It's embedded CSS animation starting `at` seconds into
+another along the path (from its `start` or `end`, or in `random` order): each glyph pops off its stalk and tumbles down out of view while the stalk
+flops over and shrinks back into its foot as soon as the glyph lets go. It's embedded CSS animation starting `at` seconds into
 the timeline (honouring `timeOffset`), and once it's over only the path is left. `growtype-react`
 plays it whenever `text` changes, then grows the new text in.
 

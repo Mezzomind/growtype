@@ -189,7 +189,7 @@ export function fromConfig(
       s.textStagger = num(c.textTransition.stagger, s.textStagger);
       s.textDirection = oneOf(
         c.textTransition.direction,
-        ["start", "end"] as const,
+        ["start", "end", "random"] as const,
         s.textDirection,
       );
     }

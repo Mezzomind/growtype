@@ -21,7 +21,7 @@ export interface Settings {
   animateText: boolean;
   textDuration: number;
   textStagger: number;
-  textDirection: "start" | "end";
+  textDirection: "start" | "end" | "random";
   inset: number;
   side: "left" | "right";
   anchor: "baseline" | "ink";

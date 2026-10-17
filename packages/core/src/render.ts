@@ -535,9 +535,9 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   // ---- Transitions and exit: when each sprout sets off, in turn along the path ----
   const s0 = Math.min(...poses.map((q) => q.sBase));
   const span = Math.max(...poses.map((q) => q.sBase)) - s0 || 1;
-  const inTurn = (t: { at: number; stagger: number; direction: "start" | "end" }) =>
+  const inTurn = (t: { at: number; stagger: number; direction: "start" | "end" | "random" }) =>
     poses.map((q) => {
-      const f = (q.sBase - s0) / span;
+      const f = t.direction === "random" ? rng.value(q.c.index, "turn") : (q.sBase - s0) / span;
       return t.at + t.stagger * (t.direction === "end" ? 1 - f : f);
     });
   for (const tr of transitions) tr.starts = inTurn(tr);
@@ -718,14 +718,15 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
           "animation-duration": sec(exit.duration * 0.75),
         }),
       })}>${glyphGroup}</g>`;
-      // Its stalk flops over the other way and shrinks back into its foot.
+      // As soon as the glyph lets go, its stalk flops over the other way and shrinks back into
+      // its foot, while the glyph is still falling.
       stemMarkup = `<g${attrs({
         class: `${p}-wither`,
         style: style({
           "--ax": `${fmt(angleDeg(sub(anchorPt, base)) - 90)}deg`,
           "--wr": `${fmt(-side * (25 + 30 * r("exit-wilt")))}deg`,
           "transform-origin": origin(base),
-          "animation-delay": at(exitAt + exit.duration * 0.25),
+          "animation-delay": at(exitAt + exit.duration * 0.1),
           "animation-duration": sec(exit.duration * 0.75),
         }),
       })}>${stemMarkup}</g>`;

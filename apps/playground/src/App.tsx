@@ -473,9 +473,9 @@ export function App() {
                 onChange={(v) => set("textStagger", v)}
               />
               <Segmented
-                label="Exit from"
+                label="Exit order"
                 value={s.textDirection}
-                options={["start", "end"] as const}
+                options={["start", "end", "random"] as const}
                 onChange={(v) => set("textDirection", v)}
               />
             </>

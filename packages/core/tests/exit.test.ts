@@ -38,6 +38,23 @@ describe("exit", () => {
     expect(drops[0]).toBeGreaterThan(drops.at(-1)!);
   });
 
+  test("goes in a seeded random order when asked", () => {
+    const random = (seed: number) =>
+      delays(growtype({ ...opts, seed, exit: { direction: "random", stagger: 1 } }).svg, "drop");
+    const drops = random(3);
+    expect(drops).not.toEqual([...drops].sort((a, b) => a - b));
+    expect(Math.min(...drops)).toBeGreaterThanOrEqual(0);
+    expect(Math.max(...drops)).toBeLessThanOrEqual(1);
+    expect(random(3)).toEqual(drops);
+  });
+
+  test("stalks start wilting while their glyphs are still falling", () => {
+    const { svg } = growtype({ ...opts, exit: { duration: 1 } });
+    const fall = 0.75;
+    const drops = delays(svg, "drop");
+    delays(svg, "wither").forEach((w, i) => expect(w).toBeLessThan(drops[i]! + fall / 2));
+  });
+
   test("is timed on the shared timeline", () => {
     const drops = delays(growtype({ ...opts, exit: { at: 2 }, timeOffset: 1.5 }).svg, "drop");
     expect(drops[0]).toBeCloseTo(0.5);

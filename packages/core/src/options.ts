@@ -74,8 +74,8 @@ export interface ExitOptions {
   duration?: number;
   /** Seconds between the first and the last sprout setting off. Default 0.6. */
   stagger?: number;
-  /** Which end of the path goes first. Default `start`. */
-  direction?: "start" | "end";
+  /** Which end of the path goes first, or `random` for sprouts to go in no particular order. Default `start`. */
+  direction?: "start" | "end" | "random";
 }
 
 export interface SporeOptions {
