@@ -6,13 +6,14 @@ import {
   useEffect,
   useImperativeHandle,
   useMemo,
+  useState,
 } from "react";
 import { useFont } from "./font.ts";
-import { type UseGrowtypeResult, type UseGrowtypeSettings, useGrowtype } from "./useGrowtype.ts";
+import { type UseGrowtypeSettings, useGrowtype } from "./useGrowtype.ts";
 
 /** Everything you can configure as plain data (what the playground's config export produces). */
 export interface GrowtypeConfig
-  extends Omit<GrowtypeOptions, "font" | "timeOffset">, UseGrowtypeSettings {
+  extends Omit<GrowtypeOptions, "font" | "timeOffset" | "wiltTransition">, UseGrowtypeSettings {
   /** URL of a font file (TTF / OTF / WOFF) to embed as glyph outlines. */
   fontUrl?: string;
   /** A CSS font family (or `{ family, weight, style }`) to use instead of a font file. */
@@ -37,8 +38,6 @@ export interface GrowtypeProps extends Omit<GrowtypeConfig, "font"> {
 export interface GrowtypeHandle {
   /** Restart all animations from the beginning. */
   replay: () => void;
-  /** Fire a blast wave now. */
-  blast: UseGrowtypeResult["blast"];
   /** A standalone SVG string whose animations start from zero. */
   toSVG: () => string;
 }
@@ -51,14 +50,14 @@ const RESPONSIVE_STYLE = 'style="display:block;width:100%;height:auto"';
  * ```tsx
  * <Growtype text="spores of thought" fontUrl="/fonts/FreckleFace-Regular.ttf"
  *   path="M 54 294 C 270 189, 495 399, 846 260" width={900} height={420}
- *   grow sway wilt={stage} blastOnWiltChange={{ direction: "left" }} />
+ *   grow sway wilt={stage} />
  * ```
  */
 export const Growtype = forwardRef<GrowtypeHandle, GrowtypeProps>(function Growtype(props, ref) {
   const {
     font,
     fontUrl,
-    blastOnWiltChange,
+    wiltTransition,
     restartOnChange,
     responsive = true,
     className,
@@ -72,13 +71,22 @@ export const Growtype = forwardRef<GrowtypeHandle, GrowtypeProps>(function Growt
   const loaded = useFont(fontUrl);
   const resolved = fontUrl ? loaded.font : (font ?? "serif");
   const growOptions: GrowtypeOptions | null = resolved ? { ...options, font: resolved } : null;
-  const g = useGrowtype(growOptions, { blastOnWiltChange, restartOnChange });
+  const g = useGrowtype(growOptions, { wiltTransition, restartOnChange });
 
-  useImperativeHandle(ref, () => ({ replay: g.replay, blast: g.blast, toSVG: g.toSVG }), [
-    g.replay,
-    g.blast,
-    g.toSVG,
-  ]);
+  // Replay remounts the SVG: its markup can be identical to what's shown (both start at time 0),
+  // and the browser only restarts CSS animations for new elements.
+  const [replays, setReplays] = useState(0);
+  useImperativeHandle(
+    ref,
+    () => ({
+      replay: () => {
+        g.replay();
+        setReplays((n) => n + 1);
+      },
+      toSVG: g.toSVG,
+    }),
+    [g.replay, g.toSVG],
+  );
 
   const error = loaded.error ?? g.error;
   useEffect(() => {
@@ -95,5 +103,12 @@ export const Growtype = forwardRef<GrowtypeHandle, GrowtypeProps>(function Growt
   );
 
   if (!html) return <>{fallback}</>;
-  return <div className={className} style={style} dangerouslySetInnerHTML={{ __html: html }} />;
+  return (
+    <div
+      key={replays}
+      className={className}
+      style={style}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
 });

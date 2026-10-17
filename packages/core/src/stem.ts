@@ -17,12 +17,15 @@ export interface StemParams {
   base: Point;
   /** Unit normal of the path at the base (direction of growth). */
   normal: Point;
+
   /** Unit tangent of the path at the base. */
   tangent: Point;
   /** Where the stem meets the glyph. */
   tip: Point;
   /** Unit direction the glyph's "up" points in. */
   tipDir: Point;
+  /** How far, and which way, a stalk buckling under a sinking glyph bulges out. Default none. */
+  buckle?: Point;
   thickness: number;
   flare: number;
   wobble: number;
@@ -111,14 +114,15 @@ export function buildStem(p: StemParams): StemGeometry {
   const flare = p.flare * Math.max(0.2, spread(0.55));
 
   // Centreline: leave the path along its normal, arrive at the glyph along tipDir.
-  const c1 = add(base, scale(normal, span * (0.42 + v * (rand() - 0.5) * 0.3)));
-  const c2 = sub(tip, scale(tipDir, span * (0.38 + v * (rand() - 0.5) * 0.3)));
+  const buckle = p.buckle ?? { x: 0, y: 0 };
+  const c1 = add(add(base, buckle), scale(normal, span * (0.42 + v * (rand() - 0.5) * 0.3)));
+  const c2 = sub(add(tip, buckle), scale(tipDir, span * (0.38 + v * (rand() - 0.5) * 0.3)));
 
   const bend = waves(rand, 3, 0.6, 1.8);
   const kinks = waves(rand, 3, 3, 6);
   const widthNoise = waves(rand, 3, 1.5, 4);
   const bendAmp = p.wobble * Math.min(span * 0.12, p.thickness * 2.2) * spread(0.6);
-  const kinkAmp = p.wilt * p.thickness * 0.9;
+  const kinkAmp = p.wilt * p.thickness;
   // Large-scale posture: a C-shaped bow or an S-curve, either way.
   const bowAmp = v * span * 0.14 * (rand() * 2 - 1);
   const sCurve = rand() < 0.35;

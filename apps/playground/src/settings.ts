@@ -15,9 +15,9 @@ export interface Settings {
   justify: "start" | "center" | "end";
   avoidOverlap: boolean;
   baseSpacing: number;
-  blastOnWilt: boolean;
-  blastFrom: "left" | "right";
-  blastStrength: number;
+  animateWilt: boolean;
+  wiltDuration: number;
+  wiltStagger: number;
   inset: number;
   side: "left" | "right";
   anchor: "baseline" | "ink";
@@ -68,9 +68,9 @@ export const INITIAL: Settings = {
   justify: "center",
   avoidOverlap: true,
   baseSpacing: 0.7,
-  blastOnWilt: true,
-  blastFrom: "left",
-  blastStrength: 22,
+  animateWilt: true,
+  wiltDuration: 1.4,
+  wiltStagger: 0.8,
   inset: 20,
   side: "left",
   anchor: "baseline",

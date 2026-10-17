@@ -38,26 +38,28 @@ export interface SwayOptions {
   wave?: boolean | WaveOptions;
 }
 
-export interface BlastOptions {
-  /** Which side of the text the shock wave comes from. Default `left`. */
-  direction?: "left" | "right";
-  /** Seconds on the animation timeline when the blast starts. Default 0. */
+/**
+ * An animated change of wilt stage. Each sprout moves from where it was to its new pose in turn
+ * along the path: wilting, it sinks under its own weight and settles with a small bounce;
+ * recovering, it springs back up, overshoots a little and settles. Evaluated at `timeOffset`, so re-render while it plays.
+ */
+export interface WiltTransition {
+  /** The wilt stage it changes from (to `wilt`). */
+  from: WiltStage | number;
+  /** Seconds on the animation timeline when the first sprout starts moving. Default 0. */
   at?: number;
-  /** Seconds for the front to sweep across the whole text. Default 1.1. */
+  /** Seconds each sprout takes to settle into its new pose. Default 1.4. */
   duration?: number;
-  /** How far sprouts are knocked over, in degrees. Default 22. */
-  strength?: number;
-  /** Seconds for a sprout to recoil and settle after being hit. Default 1.6. */
-  recoil?: number;
-  /** Debris particles thrown off each sprout. Default 3. */
-  debris?: number;
-  /** Colour of the shock ring and debris. Defaults to the stem colour. */
-  color?: string;
+  /** Seconds between the first and the last sprout setting off. Default 0.8. */
+  stagger?: number;
+  /** Which end of the path moves first. Default `start`. */
+  direction?: "start" | "end";
   /**
-   * The wilt stage before the blast. Each sprout shows this until the front reaches it, then
-   * changes to `wilt`. Evaluated at `timeOffset`, so re-render while the blast plays to see it sweep.
+   * A transition still playing when this one started (its target wilt is this one's `from`).
+   * Each sprout carries on wherever that one has it until its turn here comes, so a change made
+   * mid-transition picks every sprout up from where it is.
    */
-  fromWilt?: WiltStage | number;
+  interrupts?: WiltTransition;
 }
 
 export interface SporeOptions {
@@ -152,8 +154,10 @@ export interface GrowtypeOptions {
   /** Seed for all randomness. Same seed + options ⇒ identical SVG. Default 1. */
   seed?: number | string;
   /**
-   * Wilt stage: a named stage or 0 (full) – 3 (wilted). Fractions are allowed for tweening between stages.
-   * Effects stay subtle so text remains readable. Default `full`.
+   * Wilt stage: a named stage or 0 (full) – 3 (wilted). Glyphs sink lower at each stage on
+   * buckling stalks, tipping a little to one side or the other but staying readable; wilted, they
+   * rest just above the path and no longer sway. Fractions are allowed for in-between poses.
+   * Default `full`.
    */
   wilt?: WiltStage | number;
 
@@ -161,11 +165,8 @@ export interface GrowtypeOptions {
   grow?: boolean | GrowOptions;
   /** Idle sway animation. Default false. */
   sway?: boolean | SwayOptions;
-  /**
-   * A shock wave sweeping across from the left or right, knocking the sprouts over as it passes.
-   * Use it when the wilt stage changes (`fromWilt` → `wilt`). Default none.
-   */
-  blast?: BlastOptions;
+  /** Animate a change of wilt stage (`wiltTransition.from` → `wilt`). Default none. */
+  wiltTransition?: WiltTransition;
   /**
    * Spacing of stem bases within a word relative to the glyphs, 0–1. Below 1 the bases huddle
    * towards the middle of each word and the stalks fan out to hold the glyphs at their normal
@@ -237,15 +238,9 @@ export const DEFAULTS = {
   wave: { amplitude: 6, travel: 2.5, period: 5 } as Required<WaveOptions>,
   avoidOverlap: true,
   baseSpacing: 1,
-  blast: {
-    direction: "left",
-    at: 0,
-    duration: 1.1,
-    strength: 22,
-    recoil: 1.6,
-    debris: 3,
-  } as Required<Omit<BlastOptions, "fromWilt" | "color">> &
-    Pick<BlastOptions, "fromWilt" | "color">,
+  wiltTransition: { at: 0, duration: 1.4, stagger: 0.8, direction: "start" } as Required<
+    Omit<WiltTransition, "from" | "interrupts">
+  >,
   spores: { count: 2.5, size: 1.4, spread: 0.9 },
   path: { width: 2, opacity: 1 },
 };

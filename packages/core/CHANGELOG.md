@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking:** the `blast` option is gone. Animate wilt changes with `wiltTransition` instead:
+  sprouts sink (or spring back up) one after another along the path, and a change made
+  mid-transition picks each sprout up from where it is.
+- Wilt stages are far more pronounced: glyphs sink lower on buckling stalks at each stage,
+  slumping a little to either side while staying readable, and wilted sprouts stop swaying.
+- Faster rendering (overlap resolution and SVG output), and glyph caches are bounded.
+
 ## 0.1.0
 
 First release.

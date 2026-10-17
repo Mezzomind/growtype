@@ -62,8 +62,13 @@ export function cubicTangent(p0: Point, p1: Point, p2: Point, p3: Point, t: numb
 export function fmt(n: number, digits = 2): string {
   if (!Number.isFinite(n)) return "0";
   const s = n.toFixed(digits);
-  // Trim trailing zeros and a dangling decimal point.
-  const t = s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s;
+  // Trim trailing zeros and a dangling decimal point (by hand: this runs for every number output).
+  let end = s.length;
+  if (s.includes(".")) {
+    while (s.charCodeAt(end - 1) === 48 /* 0 */) end--;
+    if (s.charCodeAt(end - 1) === 46 /* . */) end--;
+  }
+  const t = end === s.length ? s : s.slice(0, end);
   return t === "-0" ? "0" : t;
 }
 
