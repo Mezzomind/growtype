@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - **Breaking:** the `blast` option is gone. Animate wilt changes with `wiltTransition` instead:
   sprouts sink (or spring back up) one after another along the path, and a change made

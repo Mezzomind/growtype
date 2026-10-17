@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - **Breaking:** `blastOnWiltChange` and the ref's `blast()` are gone. Wilt changes now animate by
   default (`wiltTransition`, `false` to switch off), starting in the same render as the change
