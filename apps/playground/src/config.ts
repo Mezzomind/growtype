@@ -48,6 +48,11 @@ export function toConfig(s: Settings, pathData: string): GrowtypeConfig {
       wave: s.wave && { amplitude: s.waveAmplitude },
     },
     wiltTransition: s.animateWilt && { duration: s.wiltDuration, stagger: s.wiltStagger },
+    textTransition: s.animateText && {
+      duration: s.textDuration,
+      stagger: s.textStagger,
+      direction: s.textDirection,
+    },
     glyphColor: s.glyphColor,
     ...(PALETTES[s.palette] ? { palette: PALETTES[s.palette]! } : {}),
     stemColor: s.stemColor,
@@ -175,6 +180,18 @@ export function fromConfig(
     if (isObj(c.wiltTransition)) {
       s.wiltDuration = num(c.wiltTransition.duration, s.wiltDuration);
       s.wiltStagger = num(c.wiltTransition.stagger, s.wiltStagger);
+    }
+  }
+  if (c.textTransition !== undefined) {
+    s.animateText = Boolean(c.textTransition);
+    if (isObj(c.textTransition)) {
+      s.textDuration = num(c.textTransition.duration, s.textDuration);
+      s.textStagger = num(c.textTransition.stagger, s.textStagger);
+      s.textDirection = oneOf(
+        c.textTransition.direction,
+        ["start", "end"] as const,
+        s.textDirection,
+      );
     }
   }
 
