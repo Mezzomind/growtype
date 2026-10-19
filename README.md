@@ -37,8 +37,10 @@ The playground imports the library source directly, so edits to `packages/*/src`
 
 ## Release
 
-Both packages share one version and publish from GitHub Actions with npm
-[trusted publishing](https://docs.npmjs.com/trusted-publishers): no npm token or one-time password.
+Both packages share one version. After the first release, GitHub Actions
+[stages](https://docs.npmjs.com/staged-publishing/) them on npm with
+[trusted publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC — no npm token). A
+maintainer then approves each staged version with 2FA so it goes live.
 
 ### First release (once, by hand)
 
@@ -47,23 +49,25 @@ version from your machine (npm asks for your one-time password):
 
 ```sh
 pnpm install && pnpm ready && pnpm release:pack
-npm publish .release/growtype-0.1.0.tgz --access public
-npm publish .release/growtype-react-0.1.0.tgz --access public
+npm publish .release/growtype-0.2.0.tgz --access public
+npm publish .release/growtype-react-0.2.0.tgz --access public
 ```
 
 Then, for **each** package on npmjs.com → the package → **Settings → Trusted publishing**, add
 GitHub Actions with organization `Mezzomind`, repository `growtype`, workflow `release.yml`, and
-allow **npm publish**. A new configuration must be used for a successful publish within 2 days or
-it expires, so set it up when you're about to release.
+allow **npm stage publish**. A new configuration must be used for a successful stage within 2 days
+or it expires, so set it up when you're about to release.
 
 ### Every release after that
 
 1. Bump `version` in `packages/core/package.json` and `packages/react/package.json`, and add the
    changes to each `CHANGELOG.md`.
 2. Merge to `main`, then tag and push: `git tag v0.1.1 && git push origin v0.1.1`.
-3. The **Release** workflow checks the tag matches the versions, runs the full pipeline, publishes
-   whichever packages aren't on npm yet (with provenance) and creates the GitHub release. To retry,
-   run it manually from the Actions tab with the tag.
+3. The **Release** workflow checks the tag matches the versions, runs the full pipeline, stages
+   whichever packages aren't on npm yet, and creates the GitHub release. To retry, run it manually
+   from the Actions tab with the tag.
+4. Approve each staged package (2FA): `npm stage approve growtype@x.y.z` and
+   `npm stage approve growtype-react@x.y.z` (or approve on npmjs.com).
 
 The playground deploys to GitHub Pages from `main` once **Settings → Pages → Source** is set to
 “GitHub Actions”.

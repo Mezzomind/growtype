@@ -1,16 +1,18 @@
 name: Release
 
-# Publishes both packages to npm with trusted publishing (OIDC): no npm token or one-time
-# password is involved. Runs when a vX.Y.Z tag is pushed, or manually for an existing tag
-# (Actions → Release → Run workflow), e.g. to retry a failed release.
+# Stages both packages on npm with trusted publishing (OIDC): no npm token. A maintainer
+# then approves each staged version with 2FA (`npm stage approve` or npmjs.com). Runs when
+# a vX.Y.Z tag is pushed, or manually for an existing tag (Actions → Release → Run workflow),
+# e.g. to retry a failed release.
 #
 # One-time setup per package on npmjs.com (Package → Settings → Trusted publishing):
 # GitHub Actions, organization "Mezzomind", repository "growtype", workflow "release.yml",
-# and allow "npm publish". Trusted publishing can only be set up on a package that already
-# exists, so the very first version is published by hand (see README → Release).
+# and allow "npm stage publish" (not direct publish). Trusted publishing can only be set up
+# on a package that already exists, so the very first version is published by hand
+# (see README → Release).
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   workflow_dispatch:
     inputs:
       tag:
@@ -31,23 +33,27 @@ jobs:
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+
+      - uses: pnpm/setup@v3
         with:
-          node-version: 22
-          cache: pnpm
-      # Trusted publishing needs npm >= 11.5.1; Node 22 ships npm 10.
-      - run: npm install -g npm@^11.5.1
-      - run: pnpm install --frozen-lockfile
+          runtime: node@24
+          cache: true
+          # packageManager in package.json selects pnpm; frozen install via require-lockfile
+          require-lockfile: true
+
+      # Staged publishing needs npm CLI >= 11.15.0
+      - run: npm install -g npm@^11.15.0
+
       - name: Check the tag matches the package versions
         run: pnpm run release:check "$TAG"
       - run: pnpm run ready
-      # pnpm pack swaps workspace:* and catalog: for real versions; npm then publishes the tarballs.
+      # pnpm pack swaps workspace:* and catalog: for real versions; npm then stages the tarballs.
       - run: pnpm run release:pack
-      - name: Publish to npm
+
+      - name: Stage on npm
         run: |
           for dir in packages/core packages/react; do
             name=$(node -p "require('./$dir/package.json').name")
@@ -57,8 +63,11 @@ jobs:
               continue
             fi
             # pnpm pack names tarballs <name>-<version>.tgz (scope "@a/b" becomes "a-b").
-            npm stage publish ".release/$(echo "$name" | sed 's#^@##; s#/#-#')-$version.tgz" --access public
+            tarball=".release/$(echo "$name" | sed 's#^@##; s#/#-#')-$version.tgz"
+            npm stage publish "$tarball" --access public
+            echo "::notice::$name@$version staged — approve with: npm stage approve $name@$version"
           done
+
       - name: Create GitHub release
         run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
         env:
