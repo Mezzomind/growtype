@@ -1,12 +1,10 @@
 name: Release
 
-# Stages both packages on npm with trusted publishing (OIDC): no npm token. A maintainer
-# then approves each staged version with 2FA (`npm stage approve` or npmjs.com). Runs when
-# a semantic version tag (vX.Y.Z, optional prerelease) is pushed, or manually for an existing
-# tag (Actions → Release → Run workflow), e.g. to retry a failed release.
-#
-# The tag is the version. The workflow writes it into both package.json files (it must be
-# newer than the version already committed) and pushes that bump to the default branch.
+# semantic-release reads conventional commits on main and writes the next version into both
+# packages. It stages them on npm with trusted publishing (OIDC, no npm token), then commits
+# the version bump and tags it. A maintainer approves each staged version with 2FA
+# (`npm stage approve` or npmjs.com). Run the workflow again to retry; a failed stage
+# happens before the tag, so the same commits are released on the next run.
 #
 # One-time setup per package on npmjs.com (Package → Settings → Trusted publishing):
 # GitHub Actions, organization "Mezzomind", repository "growtype", workflow "release.yml",
@@ -15,15 +13,13 @@ name: Release
 # (see README → Release).
 on:
   push:
-    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing tag to release (e.g. v0.2.1)
-        required: true
 
 permissions:
-  contents: write # create the GitHub release and push the version bump
+  contents: write # version commit, git tag, and GitHub release
+  issues: write # comment on issues mentioned in the release
+  pull-requests: write # comment on pull requests mentioned in the release
   id-token: write # npm trusted publishing (OIDC) and provenance
 
 concurrency:
@@ -33,12 +29,11 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    env:
-      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0 # semantic-release reads every commit and tag since the last release
+          persist-credentials: true
 
       - uses: pnpm/setup@v3
         with:
@@ -47,55 +42,11 @@ jobs:
           # packageManager in package.json selects pnpm; frozen install via require-lockfile
           require-lockfile: true
 
-      # Staged publishing needs npm CLI >= 11.15.0
+      # Staged publishing needs npm CLI >= 11.15.0. semantic-release also uses npm to
+      # write the version into package.json.
       - run: npm install -g npm@^11.15.0
 
-      - name: Set package versions from the tag
-        run: pnpm run release:version "$TAG"
-      - name: Check the tag matches the package versions
-        run: pnpm run release:check "$TAG"
       - run: pnpm run ready
-      # pnpm pack swaps workspace:* and catalog: for real versions; npm then stages the tarballs.
-      - run: pnpm run release:pack
-
-      - name: Stage on npm
-        run: |
-          for dir in packages/core packages/react; do
-            name=$(node -p "require('./$dir/package.json').name")
-            version=$(node -p "require('./$dir/package.json').version")
-            if npm view "$name@$version" version >/dev/null 2>&1; then
-              echo "$name@$version is already on npm, skipping"
-              continue
-            fi
-            # pnpm pack names tarballs <name>-<version>.tgz (scope "@a/b" becomes "a-b").
-            tarball=".release/$(echo "$name" | sed 's#^@##; s#/#-#')-$version.tgz"
-            npm stage publish "$tarball" --access public
-            echo "::notice::$name@$version staged — approve with: npm stage approve $name@$version"
-          done
-
-      - name: Create GitHub release
-        run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
+      - run: pnpm run release
         env:
-          GH_TOKEN: ${{ github.token }}
-
-      # The published tarballs already carry the tag version. Record it on the default branch
-      # too, so the next release's "must be newer" check sees this one. A retry is a no-op
-      # once that commit is there. Push only fast-forwards; it never rewrites history.
-      - name: Commit the version bump
-        run: |
-          branch="${{ github.event.repository.default_branch }}"
-          version="${TAG#v}"
-          git fetch origin "$branch"
-          remote=$(git show "origin/$branch:packages/core/package.json" | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>process.stdout.write(JSON.parse(s).version))")
-          if [ "$remote" = "$version" ]; then
-            echo "origin/$branch is already at $version"
-            exit 0
-          fi
-          git add packages/core/package.json packages/react/package.json
-          if git diff --cached --quiet; then
-            echo "No version changes to commit"
-            exit 0
-          fi
-          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -m "Set package version to $version"
-          git push origin "HEAD:$branch"
+          GITHUB_TOKEN: ${{ github.token }}

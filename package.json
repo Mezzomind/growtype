@@ -9,11 +9,20 @@
     "dev": "vp run playground#dev",
     "build": "vp run -r build",
     "test": "vp run -r test",
+    "release": "semantic-release",
     "release:check": "node scripts/check-release.mjs",
-    "release:version": "node scripts/set-release-version.mjs",
     "release:pack": "rm -rf .release && pnpm --filter \"./packages/*\" pack --pack-destination .release"
   },
   "devDependencies": {
+    "@semantic-release/changelog": "catalog:",
+    "@semantic-release/commit-analyzer": "catalog:",
+    "@semantic-release/exec": "catalog:",
+    "@semantic-release/git": "catalog:",
+    "@semantic-release/github": "catalog:",
+    "@semantic-release/npm": "catalog:",
+    "@semantic-release/release-notes-generator": "catalog:",
+    "conventional-changelog-conventionalcommits": "catalog:",
+    "semantic-release": "catalog:",
     "vite-plus": "catalog:"
   },
   "engines": {
