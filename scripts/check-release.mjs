@@ -1,9 +1,16 @@
-// Verifies that the publishable packages share one version and, when given a tag (vX.Y.Z),
-// that it matches. Used by the release workflow before anything is published.
+// Verifies that the publishable packages share one semantic version and, when given a tag
+// (vX.Y.Z), that it matches. The release workflow sets the version from the tag first.
 import { readFileSync } from "node:fs";
+import { parseReleaseTag, parseSemver } from "./semver.mjs";
 
 const packages = ["packages/core", "packages/react"].map((dir) => {
   const pkg = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), "utf8"));
+  try {
+    parseSemver(pkg.version);
+  } catch (error) {
+    console.error(`${pkg.name}: ${error.message}`);
+    process.exit(1);
+  }
   return { dir, name: pkg.name, version: pkg.version };
 });
 
@@ -21,9 +28,17 @@ const [version] = versions;
 const tag =
   process.argv[2] ??
   (process.env.GITHUB_REF_TYPE === "tag" ? process.env.GITHUB_REF_NAME : undefined);
-if (tag && tag !== `v${version}`) {
-  console.error(`Tag ${tag} does not match package version ${version} (expected v${version}).`);
-  process.exit(1);
+if (tag) {
+  try {
+    parseReleaseTag(tag);
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
+  if (tag !== `v${version}`) {
+    console.error(`Tag ${tag} does not match package version ${version} (expected v${version}).`);
+    process.exit(1);
+  }
 }
 console.log(
   `OK: ${packages.map((p) => p.name).join(", ")} at ${version}${tag ? ` (tag ${tag})` : ""}`,

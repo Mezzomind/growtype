@@ -60,12 +60,13 @@ or it expires, so set it up when you're about to release.
 
 ### Every release after that
 
-1. Bump `version` in `packages/core/package.json` and `packages/react/package.json`, and add the
-   changes to each `CHANGELOG.md`.
-2. Merge to `main`, then tag and push: `git tag v0.1.1 && git push origin v0.1.1`.
-3. The **Release** workflow checks the tag matches the versions, runs the full pipeline, stages
-   whichever packages aren't on npm yet, and creates the GitHub release. To retry, run it manually
-   from the Actions tab with the tag.
+1. Add the changes to each `CHANGELOG.md`.
+2. Merge to `main`, then tag and push a semantic version: `git tag v0.2.1 && git push origin v0.2.1`.
+   The tag is `vMAJOR.MINOR.PATCH` (a prerelease like `v0.3.0-beta.1` is allowed) and must be newer
+   than the version already in the packages.
+3. The **Release** workflow writes that version into both `package.json` files, commits the bump to
+   `main`, runs the full pipeline, stages whichever packages aren't on npm yet, and creates the
+   GitHub release. To retry, run it manually from the Actions tab with the tag.
 4. Approve each staged package (2FA): `npm stage approve growtype@x.y.z` and
    `npm stage approve growtype-react@x.y.z` (or approve on npmjs.com).
 

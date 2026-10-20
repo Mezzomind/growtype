@@ -10,6 +10,7 @@
     "build": "vp run -r build",
     "test": "vp run -r test",
     "release:check": "node scripts/check-release.mjs",
+    "release:version": "node scripts/set-release-version.mjs",
     "release:pack": "rm -rf .release && pnpm --filter \"./packages/*\" pack --pack-destination .release"
   },
   "devDependencies": {
