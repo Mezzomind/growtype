@@ -64,10 +64,10 @@ or it expires, so set it up when you're about to release.
 
 Commit messages on `main` decide the bump:
 
-| Commit | Version |
-| --- | --- |
-| `fix:` or `perf:` | patch, `0.2.1` |
-| `feat:` | minor, `0.3.0` |
+| Commit                                  | Version        |
+| --------------------------------------- | -------------- |
+| `fix:` or `perf:`                       | patch, `0.2.1` |
+| `feat:`                                 | minor, `0.3.0` |
 | `feat!:` or a `BREAKING CHANGE:` footer | major, `1.0.0` |
 
 Other commits (`chore:`, `docs:`, `refactor:`, …) do not release.
