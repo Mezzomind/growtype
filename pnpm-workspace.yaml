@@ -29,6 +29,7 @@ catalogMode: prefer
 
 overrides:
   vite@*: "catalog:"
+  conventional-changelog-writer: ^9.3.0
 
 peerDependencyRules:
   allowAny:
