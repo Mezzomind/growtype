@@ -37,7 +37,9 @@ The playground imports the library source directly, so edits to `packages/*/src`
 
 ## Release
 
-Both packages share one version. After the first release, GitHub Actions
+Both packages share one version. [semantic-release](https://semantic-release.gitbook.io/)
+chooses the next one from [conventional commits](https://www.conventionalcommits.org/) on `main`,
+writes it into both packages, and tags it. GitHub Actions then
 [stages](https://docs.npmjs.com/staged-publishing/) them on npm with
 [trusted publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC — no npm token). A
 maintainer then approves each staged version with 2FA so it goes live.
@@ -60,14 +62,22 @@ or it expires, so set it up when you're about to release.
 
 ### Every release after that
 
-1. Add the changes to each `CHANGELOG.md`.
-2. Merge to `main`, then tag and push a semantic version: `git tag v0.2.1 && git push origin v0.2.1`.
-   The tag is `vMAJOR.MINOR.PATCH` (a prerelease like `v0.3.0-beta.1` is allowed) and must be newer
-   than the version already in the packages.
-3. The **Release** workflow writes that version into both `package.json` files, commits the bump to
-   `main`, runs the full pipeline, stages whichever packages aren't on npm yet, and creates the
-   GitHub release. To retry, run it manually from the Actions tab with the tag.
-4. Approve each staged package (2FA): `npm stage approve growtype@x.y.z` and
+Commit messages on `main` decide the bump:
+
+| Commit                                  | Version        |
+| --------------------------------------- | -------------- |
+| `fix:` or `perf:`                       | patch, `0.2.1` |
+| `feat:`                                 | minor, `0.3.0` |
+| `feat!:` or a `BREAKING CHANGE:` footer | major, `1.0.0` |
+
+Other commits (`chore:`, `docs:`, `refactor:`, …) do not release.
+
+1. Merge to `main`.
+2. The **Release** workflow runs semantic-release. When the commits call for a release, it sets
+   `version` in both `package.json` files, prepends the notes to each `CHANGELOG.md`, stages
+   whichever packages aren't on npm yet, then commits the bump to `main`, tags `vX.Y.Z`, and
+   creates the GitHub release. Run the workflow again from the Actions tab to retry.
+3. Approve each staged package (2FA): `npm stage approve growtype@x.y.z` and
    `npm stage approve growtype-react@x.y.z` (or approve on npmjs.com).
 
 The playground deploys to GitHub Pages from `main` once **Settings → Pages → Source** is set to
