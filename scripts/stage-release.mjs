@@ -23,7 +23,8 @@ for (const pkg of packages) {
   }
 
   const tarball = `.release/${pkg.name.replace(/^@/, "").replaceAll("/", "-")}-${pkg.version}.tgz`;
-  const publish = npm(["stage", "publish", tarball, "--access", "public"]);
+  const command = pkg.name.includes("react") ? ["publish", tarball, "--access", "public"] : ["stage", "publish", tarball, "--access", "public"];
+  const publish = npm([...command, '--loglevel', 'verbose']);
   if (publish.stdout) process.stdout.write(publish.stdout);
   if (publish.stderr) process.stderr.write(publish.stderr);
   if (publish.status !== 0) process.exit(publish.status ?? 1);
