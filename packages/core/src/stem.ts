@@ -138,7 +138,11 @@ export function buildStem(p: StemParams): StemGeometry {
     w: 0.025 + rand() * 0.035,
   }));
 
-  const N = Math.max(18, Math.min(56, Math.round(span / 2)));
+  // Samples along the centreline. Each one becomes a cubic on both sides of the outline, so this
+  // sets the stalk's share of the output. The floor is what resolves the kinks and nodal
+  // swellings below; past the cap a longer stalk only spends bytes on detail finer than the
+  // short stalks already get.
+  const N = Math.max(18, Math.min(32, Math.round(span / 2)));
   const left: Point[] = [];
   const right: Point[] = [];
   const centre: Point[] = [];

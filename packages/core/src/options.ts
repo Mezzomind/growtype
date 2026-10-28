@@ -222,7 +222,11 @@ export interface GrowtypeOptions {
    * grow/sway continue where they were instead of restarting. Default 0.
    */
   timeOffset?: number;
-  /** Prefix for ids and CSS classes; set when inlining several SVGs with different options. */
+  /**
+   * Prefix for ids and CSS classes; set when inlining several SVGs with different options.
+   * It goes into the embedded stylesheet verbatim, so it must be a CSS identifier
+   * (`[A-Za-z][A-Za-z0-9_-]*`) — anything else throws rather than risk injecting markup.
+   */
   idPrefix?: string;
   /** Add a `<title>` for accessibility. Defaults to the text. */
   title?: string | false;

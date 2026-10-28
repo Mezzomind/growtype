@@ -50,11 +50,22 @@ export const isSpace = (c: string): boolean => /^\s$/u.test(c);
  * Split text into user-perceived characters (grapheme clusters), so emoji sequences such as
  * 👨‍👩‍👧, 🇯🇵, 👍🏽 and 1️⃣ – and letters with combining accents – stay whole.
  */
-export function splitGraphemes(text: string): string[] {
-  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
-    const seg = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-    return Array.from(seg.segment(text), (s) => s.segment);
+let segmenter: Intl.Segmenter | null | undefined;
+
+/** The shared grapheme segmenter: building one per call shows up in per-frame renders. */
+function graphemeSegmenter(): Intl.Segmenter | null {
+  if (segmenter === undefined) {
+    segmenter =
+      typeof Intl !== "undefined" && "Segmenter" in Intl
+        ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+        : null;
   }
+  return segmenter;
+}
+
+export function splitGraphemes(text: string): string[] {
+  const seg = graphemeSegmenter();
+  if (seg) return Array.from(seg.segment(text), (s) => s.segment);
   // Fallback: glue modifiers, variation selectors, keycaps, ZWJ links and flag pairs onto the
   // preceding code point.
   const out: string[] = [];

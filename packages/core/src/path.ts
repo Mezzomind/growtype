@@ -343,9 +343,21 @@ export class PathSampler {
     }
   }
 
+  /**
+   * The subpath containing arc length `s`. Binary search rather than a scan: `pointAt` and
+   * `tangentAt` call this once each per sample, and a path made of many short subpaths would
+   * otherwise cost O(subpaths) per sample.
+   */
   private subpathAt(s: number): Subpath {
-    for (const sp of this.subpaths) if (s <= sp.end) return sp;
-    return this.subpaths[this.subpaths.length - 1]!;
+    const last = this.subpaths.length - 1;
+    let lo = 0;
+    let hi = last;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (s <= this.subpaths[mid]!.end) hi = mid;
+      else lo = mid + 1;
+    }
+    return this.subpaths[Math.min(lo, last)]!;
   }
 
   private locate(s: number, sp: Subpath): number {
@@ -387,6 +399,9 @@ export class PathSampler {
   }
 }
 
+/** Upper bound on `OffsetArcMap` samples, so path length alone can't drive the cost. */
+const MAX_OFFSET_SAMPLES = 4000;
+
 /**
  * Maps arc length measured along a parallel curve (offset `height` along the growth normal)
  * back to arc length on the base path. Laying text out in offset space keeps the glyphs –
@@ -399,7 +414,10 @@ export class OffsetArcMap {
 
   constructor(sampler: PathSampler, height: number, side: "left" | "right", step = 1) {
     const sign = side === "left" ? 1 : -1;
-    const n = Math.max(2, Math.ceil(sampler.length / step));
+    // `step` is in user units, so a very long path would otherwise cost samples without bound.
+    // The map is a monotone arc-length remap read by linear interpolation, so on a path long
+    // enough to hit the cap the coarser spacing is still a small fraction of its length.
+    const n = clamp(Math.ceil(sampler.length / step), 2, MAX_OFFSET_SAMPLES);
     let prev: Point | null = null;
     let prevBase: Point | null = null;
     let total = 0;
@@ -440,4 +458,55 @@ export class OffsetArcMap {
     const t = span > 0 ? (s - o[lo]!) / span : 0;
     return this.base[lo]! + (this.base[hi]! - this.base[lo]!) * t;
   }
+}
+
+/**
+ * Flattening a path and building its offset map are pure functions of their inputs, but a live
+ * render re-runs them every animation frame with the same path. These keep the last few results
+ * so a frame that changes only the timeline does no path work at all.
+ */
+const SAMPLER_CACHE_LIMIT = 6;
+const samplerCache = new Map<string, PathSampler>();
+const offsetCache = new WeakMap<PathSampler, Map<string, OffsetArcMap>>();
+
+function reuse<T>(cache: Map<string, T>, key: string, build: () => T, limit: number): T {
+  const hit = cache.get(key);
+  if (hit !== undefined) {
+    // Refresh: least recently used is evicted first.
+    cache.delete(key);
+    cache.set(key, hit);
+    return hit;
+  }
+  const made = build();
+  if (cache.size >= limit) cache.delete(cache.keys().next().value!);
+  cache.set(key, made);
+  return made;
+}
+
+/** A `PathSampler` for this path, reused across renders. Samplers are immutable once built. */
+export function getPathSampler(input: PathInput, resolution = 1): PathSampler {
+  const data = pathInputToData(input);
+  return reuse(
+    samplerCache,
+    `${resolution}|${data}`,
+    () => new PathSampler(data, resolution),
+    SAMPLER_CACHE_LIMIT,
+  );
+}
+
+/** An `OffsetArcMap` for this sampler and offset, reused across renders. */
+export function getOffsetArcMap(
+  sampler: PathSampler,
+  height: number,
+  side: "left" | "right",
+  step = 1,
+): OffsetArcMap {
+  let perSampler = offsetCache.get(sampler);
+  if (!perSampler) offsetCache.set(sampler, (perSampler = new Map()));
+  return reuse(
+    perSampler,
+    `${height}|${side}|${step}`,
+    () => new OffsetArcMap(sampler, height, side, step),
+    4,
+  );
 }

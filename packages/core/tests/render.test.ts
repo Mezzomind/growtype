@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import { CssFontAdapter, growtype, renderGrowtype } from "../src/index.ts";
+import { toFontAdapter } from "../src/font.ts";
 import { polygonOverlap } from "../src/geometry.ts";
 import { font } from "./helpers.ts";
 
@@ -208,5 +209,57 @@ describe("growtype", () => {
     expect(
       renderGrowtype({ ...opts, seed: "snapshot", grow: true, sway: true, spores: true, wilt: 1 }),
     ).toMatchSnapshot();
+  });
+});
+
+describe("idPrefix", () => {
+  const withPrefix = (idPrefix: string) =>
+    renderGrowtype({ ...opts, grow: true, sway: true, idPrefix });
+
+  test("accepts CSS identifiers and uses them for classes and keyframes", () => {
+    const svg = withPrefix("my-sprouts_2");
+    expect(svg).toContain('class="my-sprouts_2"');
+    expect(svg).toContain("@keyframes my-sprouts_2-sway");
+  });
+
+  test("rejects anything that could break out of the stylesheet", () => {
+    // The prefix lands in <style> and in class attributes, where no escaping applies.
+    for (const bad of [
+      "x</style><script>alert(1)</script><style>y",
+      'x" onload="alert(1)',
+      "x{}body{display:none}",
+      "x y",
+      "2leading-digit",
+      "",
+    ]) {
+      expect(() => withPrefix(bad)).toThrow(/idPrefix must be a CSS identifier/);
+    }
+  });
+
+  test("a text transition validates the prefix too", () => {
+    expect(() =>
+      growtype({ ...opts, idPrefix: "</style>", textTransition: { from: "other", at: 0 } }),
+    ).toThrow(/idPrefix must be a CSS identifier/);
+  });
+});
+
+describe("font adapters", () => {
+  test("are reused for the same font, so glyph caches survive across renders", () => {
+    expect(toFontAdapter(font)).toBe(toFontAdapter(font));
+    expect(toFontAdapter("serif")).toBe(toFontAdapter("serif"));
+    expect(toFontAdapter("serif")).not.toBe(toFontAdapter("monospace"));
+    // The emoji fallback and its scale are part of the identity.
+    expect(toFontAdapter(font, "Noto Color Emoji")).not.toBe(toFontAdapter(font));
+    expect(toFontAdapter(font, undefined, 0.5)).not.toBe(toFontAdapter(font, undefined, 0.9));
+  });
+});
+
+describe("output size", () => {
+  test("stalk detail is capped, so a long stem does not grow the SVG without bound", () => {
+    const cubics = (stemLength: number) =>
+      (renderGrowtype({ ...opts, stemLength }).match(/C/g) ?? []).length;
+    // Past the cap, extra length adds no further samples.
+    expect(cubics(200)).toBe(cubics(400));
+    expect(cubics(200)).toBeLessThan(cubics(36) * 2.2);
   });
 });
