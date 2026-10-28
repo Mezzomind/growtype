@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import { PathSampler, pathInputToData } from "../src/index.ts";
-import { parsePathData } from "../src/path.ts";
+import { getOffsetArcMap, getPathSampler, parsePathData } from "../src/path.ts";
 
 describe("PathSampler", () => {
   test("measures a straight line", () => {
@@ -62,5 +62,58 @@ describe("PathSampler", () => {
 
   test("rejects empty paths", () => {
     expect(() => new PathSampler("M0 0")).toThrow(/no length/);
+  });
+
+  test("locates arc lengths across many subpaths", () => {
+    // Each subpath is 10 long, so arc length 10n + 5 is the middle of subpath n.
+    const n = 40;
+    const d = Array.from({ length: n }, (_, i) => `M${i * 100} ${i} L${i * 100 + 10} ${i}`).join(
+      " ",
+    );
+    const p = new PathSampler(d);
+    expect(p.length).toBeCloseTo(10 * n, 5);
+    for (let i = 0; i < n; i++) {
+      expect(p.pointAt(i * 10 + 5)).toEqual({ x: i * 100 + 5, y: i });
+    }
+    // Boundaries resolve to the end of the earlier subpath, as a linear scan did.
+    expect(p.pointAt(10)).toEqual({ x: 10, y: 0 });
+    expect(p.pointAt(p.length)).toEqual({ x: (n - 1) * 100 + 10, y: n - 1 });
+  });
+
+  test("caps offset-map samples so path length alone cannot drive the cost", () => {
+    // A very long path still maps end to end, and monotonically.
+    const map = getOffsetArcMap(new PathSampler("M0 500 L200000 500"), 60, "left");
+    expect(map.toBase(0)).toBeCloseTo(0);
+    expect(map.toBase(map.length)).toBeCloseTo(200000, 0);
+    expect(map.toBase(map.length / 2)).toBeGreaterThan(map.toBase(map.length / 4));
+  });
+});
+
+describe("path caches", () => {
+  test("reuse a sampler and offset map for the same inputs", () => {
+    const d = "M 10 100 C 100 20, 200 180, 300 100";
+    const a = getPathSampler(d);
+    expect(getPathSampler(d)).toBe(a);
+    expect(getPathSampler("M 10 100 L 300 100")).not.toBe(a);
+    const map = getOffsetArcMap(a, 40, "left");
+    expect(getOffsetArcMap(a, 40, "left")).toBe(map);
+    expect(getOffsetArcMap(a, 40, "right")).not.toBe(map);
+    expect(getOffsetArcMap(a, 80, "left")).not.toBe(map);
+  });
+
+  test("point input is keyed by the path it produces, not by array identity", () => {
+    expect(
+      getPathSampler([
+        [0, 0],
+        [50, 20],
+        [100, 0],
+      ]),
+    ).toBe(
+      getPathSampler([
+        [0, 0],
+        [50, 20],
+        [100, 0],
+      ]),
+    );
   });
 });

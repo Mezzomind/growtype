@@ -17,19 +17,19 @@ const rectHull = (x1: number, y1: number, x2: number, y2: number): Point[] => [
  */
 const GLYPH_CACHE_LIMIT = 256;
 
-/** Look up a cached glyph, marking it recently used. */
-function cacheGet(cache: Map<string, GlyphInfo>, key: string): GlyphInfo | undefined {
+/** Look up a cached entry, marking it recently used. */
+function cacheGet<T>(cache: Map<string, T>, key: string): T | undefined {
   const hit = cache.get(key);
-  if (hit) {
+  if (hit !== undefined) {
     cache.delete(key);
     cache.set(key, hit);
   }
   return hit;
 }
 
-/** Cache a glyph, evicting the least recently used once the cache is full. */
-function cacheSet(cache: Map<string, GlyphInfo>, key: string, info: GlyphInfo): void {
-  cache.set(key, info);
+/** Cache an entry, evicting the least recently used once the cache is full. */
+function cacheSet<T>(cache: Map<string, T>, key: string, value: T): void {
+  cache.set(key, value);
   if (cache.size > GLYPH_CACHE_LIMIT) cache.delete(cache.keys().next().value!);
 }
 
@@ -250,6 +250,7 @@ export class CssFontAdapter implements FontAdapter {
   readonly kind = "text" as const;
   readonly spec: Required<CssFont>;
   private readonly cache = new Map<string, GlyphInfo>();
+  private readonly kernCache = new Map<string, number>();
 
   constructor(spec: CssFont | string) {
     const s = typeof spec === "string" ? { family: spec } : spec;
@@ -303,12 +304,21 @@ export class CssFontAdapter implements FontAdapter {
   }
 
   kerning(left: string, right: string, fontSize: number): number {
+    // Measuring the pair is as costly as measuring a glyph, and layout asks for every adjacent
+    // pair on every render, so this is cached alongside the glyphs.
+    const key = `${fontSize}|${left}|${right}`;
+    const hit = cacheGet(this.kernCache, key);
+    if (hit !== undefined) return hit;
     const pair = this.measure(left + right, fontSize);
-    if (!pair) return 0;
-    const a = this.glyph(left, fontSize).advance;
-    const b = this.glyph(right, fontSize).advance;
-    const k = pair.width - a - b;
-    return Math.abs(k) < 0.01 ? 0 : k;
+    let k = 0;
+    if (pair) {
+      const a = this.glyph(left, fontSize).advance;
+      const b = this.glyph(right, fontSize).advance;
+      const d = pair.width - a - b;
+      k = Math.abs(d) < 0.01 ? 0 : d;
+    }
+    cacheSet(this.kernCache, key, k);
+    return k;
   }
 
   textAttributes(fontSize: number): Record<string, string> {
@@ -359,17 +369,70 @@ export class FallbackFontAdapter implements FontAdapter {
   }
 }
 
+/**
+ * Adapters own their glyph caches, so building one per render would throw every measurement
+ * away — for a CSS font that means a `measureText` per character per frame. They are immutable
+ * apart from those caches, so renders with the same inputs share one.
+ *
+ * Fonts given as objects are keyed by identity (as everywhere else in the library); fonts given
+ * as a family name are keyed by the name, which is why `fontEpoch` exists: a web font that
+ * finishes loading after a glyph was measured would otherwise leave stale metrics cached under
+ * that name forever. Callers holding their own adapter instance invalidate it by making a new one.
+ */
+let fontEpoch = 0;
+if (typeof document !== "undefined" && "fonts" in document) {
+  document.fonts?.addEventListener?.("loadingdone", () => {
+    fontEpoch++;
+  });
+}
+
+interface AdapterEntry {
+  epoch: number;
+  adapters: Map<string, FontAdapter>;
+}
+
+const namedAdapters: AdapterEntry = { epoch: 0, adapters: new Map() };
+const objectAdapters = new WeakMap<object, AdapterEntry>();
+
+function adaptersFor(font: FontInput): Map<string, FontAdapter> {
+  let entry: AdapterEntry;
+  if (typeof font === "string") {
+    entry = namedAdapters;
+  } else {
+    entry = objectAdapters.get(font) ?? { epoch: fontEpoch, adapters: new Map() };
+    objectAdapters.set(font, entry);
+  }
+  if (entry.epoch !== fontEpoch) {
+    entry.epoch = fontEpoch;
+    entry.adapters.clear();
+  }
+  // Family names are caller-supplied strings, so the named map is the one that could grow.
+  if (entry === namedAdapters && entry.adapters.size > 32) entry.adapters.clear();
+  return entry.adapters;
+}
+
 export function toFontAdapter(
   font: FontInput,
   fallback: CssFont | string = EMOJI_FONT_FAMILY,
   emojiScale = 1,
 ): FontAdapter {
+  const adapters = adaptersFor(font);
+  const key = `${typeof font === "string" ? font : ""}|${emojiScale}|${
+    typeof fallback === "string" ? fallback : JSON.stringify(fallback)
+  }`;
+  const hit = adapters.get(key);
+  if (hit) return hit;
+
   const primary =
     typeof font === "string"
       ? new CssFontAdapter(font)
       : "glyph" in font && typeof font.glyph === "function"
         ? font
         : new CssFontAdapter(font as CssFont);
-  if (primary instanceof FallbackFontAdapter) return primary;
-  return new FallbackFontAdapter(primary, new CssFontAdapter(fallback), emojiScale);
+  const adapter =
+    primary instanceof FallbackFontAdapter
+      ? primary
+      : new FallbackFontAdapter(primary, new CssFontAdapter(fallback), emojiScale);
+  adapters.set(key, adapter);
+  return adapter;
 }
