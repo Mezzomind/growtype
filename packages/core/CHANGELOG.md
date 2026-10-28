@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.3](https://github.com/Mezzomind/growtype/compare/v0.2.2...v0.2.3) (2026-10-28)
+
+### Bug Fixes
+
+* reject an idPrefix that is not a CSS identifier ([fa229c1](https://github.com/Mezzomind/growtype/commit/fa229c1bdc07ab5ced5dc1876f699794ca1827eb))
+
+### Performance Improvements
+
+* reuse font adapters and path objects, bound the hot loops ([874dbed](https://github.com/Mezzomind/growtype/commit/874dbedc4a6786ba880b952d8e9ca9fb82d560df))
+
 ## [0.2.2](https://github.com/Mezzomind/growtype/compare/v0.2.1...v0.2.2) (2026-10-21)
 
 ### Bug Fixes
