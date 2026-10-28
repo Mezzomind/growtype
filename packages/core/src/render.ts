@@ -25,7 +25,7 @@ import {
   type WaveOptions,
   wiltIndex,
 } from "./options.ts";
-import { OffsetArcMap, PathSampler } from "./path.ts";
+import { getOffsetArcMap, getPathSampler } from "./path.ts";
 import { Random, hashString, normalizeSeed } from "./random.ts";
 import { buildStem } from "./stem.ts";
 
@@ -180,22 +180,34 @@ function poseGeometry(q: Pose) {
   return { tipDir, anchorPt, rotation: angleDeg(tipDir) + 90, glyphScale: 1 - 0.1 * q.u };
 }
 
+type PoseGeometry = ReturnType<typeof poseGeometry>;
+
 /** The glyph's convex outline in SVG coordinates. */
-function glyphHull(q: Pose): Point[] {
+function glyphHull(q: Pose, geom: PoseGeometry = poseGeometry(q)): Point[] {
   const hull = q.c.glyph.hull;
   if (!hull) return [];
-  const { anchorPt, rotation, glyphScale } = poseGeometry(q);
+  const { anchorPt, rotation, glyphScale } = geom;
   return hull.map((h) => add(anchorPt, rotate(scale(sub(h, q.anchorLocal), glyphScale), rotation)));
 }
 
 /** A thin quad standing in for the stalk. */
-function stemQuad(q: Pose, half: number): Point[] {
-  const { anchorPt } = poseGeometry(q);
+function stemQuad(q: Pose, half: number, geom: PoseGeometry = poseGeometry(q)): Point[] {
+  const { anchorPt } = geom;
   const d = sub(anchorPt, q.base);
   const l = Math.hypot(d.x, d.y) || 1;
   const n = { x: (-d.y / l) * half, y: (d.x / l) * half };
   return [add(q.base, n), add(anchorPt, n), sub(anchorPt, n), sub(q.base, n)];
 }
+
+/**
+ * Relaxation budget for `resolveOverlaps`. Pairs that come apart stop being re-tested, so a
+ * typical render converges in a handful of steps; the budget only bounds the crowded case, where
+ * it was by far the most expensive thing in a render. Easing droop away is what makes the stuck
+ * pairs converge, so it starts early enough to still do its work within the budget.
+ */
+const MAX_RELAX_STEPS = 32;
+const DROOP_DAMP_AFTER = 6;
+const DROOP_DAMP = 0.8;
 
 /**
  * Nudge poses until no glyph overlaps its neighbours' glyphs or stalks by more than it would if
@@ -211,8 +223,10 @@ function resolveOverlaps(poses: Pose[], o: { fontSize: number; stemHalf: number 
     box: [number, number, number, number];
   }
   const shapeOf = (q: Pose): Shape => {
-    const glyph = glyphHull(q);
-    const stem = stemQuad(q, o.stemHalf);
+    // One pose solve for both outlines: this runs for every pose on every relaxation step.
+    const geom = poseGeometry(q);
+    const glyph = glyphHull(q, geom);
+    const stem = stemQuad(q, o.stemHalf, geom);
     let x1 = Infinity;
     let y1 = Infinity;
     let x2 = -Infinity;
@@ -257,7 +271,7 @@ function resolveOverlaps(poses: Pose[], o: { fontSize: number; stemHalf: number 
   // A pair found clear stays clear until one of its shapes changes: only re-test those that did.
   // `seen` is the sum of both shapes' versions when the pair was last found clear.
   const version = poses.map(() => 0);
-  for (let iter = 0; iter < 120; iter++) {
+  for (let iter = 0; iter < MAX_RELAX_STEPS; iter++) {
     let moved = false;
     for (const pr of pairs) {
       const v = version[pr.i]! + version[pr.j]!;
@@ -280,9 +294,9 @@ function resolveOverlaps(poses: Pose[], o: { fontSize: number; stemHalf: number 
       a.twist *= 0.6;
       b.twist *= 0.6;
       b.droopSign = a.droopSign;
-      if (iter >= 20) {
-        a.droop *= 0.85;
-        b.droop *= 0.85;
+      if (iter >= DROOP_DAMP_AFTER) {
+        a.droop *= DROOP_DAMP;
+        b.droop *= DROOP_DAMP;
       }
       shapes[pr.i] = shapeOf(a);
       shapes[pr.j] = shapeOf(b);
@@ -359,7 +373,7 @@ export function growtype(options: GrowtypeOptions): GrowtypeResult {
   const exit = { ...DEFAULTS.exit, ...tt };
   const end = exit.at + exit.stagger + exit.duration;
   // Both texts share one stylesheet, so they share a prefix.
-  const idPrefix = options.idPrefix ?? prefixOf(options);
+  const idPrefix = prefixFor(options);
   const leaving = (options.timeOffset ?? 0) < end;
   const incoming = render({ ...options, idPrefix }, { growAt: end, exitCss: leaving });
   if (!leaving) return incoming.result;
@@ -373,6 +387,26 @@ const prefixOf = (o: GrowtypeOptions) =>
   `gt${(hashString(`${normalizeSeed(o.seed)}|${o.text}`) % 46656).toString(36)}`;
 
 /**
+ * The prefix is interpolated into the stylesheet and into class attributes, where neither
+ * attribute nor text escaping applies, so it has to be a bare CSS identifier. Anything else
+ * could close the `<style>` element and inject markup into a host that inlines the SVG.
+ */
+const ID_PREFIX = /^[A-Za-z][\w-]*$/;
+
+function checkPrefix(prefix: string): string {
+  if (!ID_PREFIX.test(prefix)) {
+    throw new Error(
+      `growtype: idPrefix must be a CSS identifier matching ${String(ID_PREFIX)}, got ${JSON.stringify(prefix)}`,
+    );
+  }
+  return prefix;
+}
+
+/** The CSS/id prefix for a render: the caller's, once validated, or one derived from the text. */
+const prefixFor = (o: GrowtypeOptions): string =>
+  o.idPrefix === undefined ? prefixOf(o) : checkPrefix(o.idPrefix);
+
+/**
  * Render one text. Text coming in after another grows from `growAt` seconds into the timeline
  * (even without `grow`), under a path that's already drawn.
  */
@@ -381,7 +415,7 @@ function render(
   incoming?: { growAt: number; exitCss: boolean },
 ): { result: GrowtypeResult; body: string } {
   const font = toFontAdapter(o.font, o.emojiFont, o.emojiScale ?? DEFAULTS.emojiScale);
-  const sampler = new PathSampler(o.path);
+  const sampler = getPathSampler(o.path);
   const rng = new Random(o.seed);
 
   const fontSizeIn = o.fontSize ?? DEFAULTS.fontSize;
@@ -415,7 +449,7 @@ function render(
   // Lay text out along the curve the glyphs actually sit on, then map back to the base path.
   const arcMap =
     (o.compensateCurvature ?? DEFAULTS.compensateCurvature) && stemLength > 0
-      ? new OffsetArcMap(sampler, stemLength + fontSizeIn * 0.35, side)
+      ? getOffsetArcMap(sampler, stemLength + fontSizeIn * 0.35, side)
       : null;
   const layout = layoutText({
     text: o.text,
@@ -451,7 +485,7 @@ function render(
     fieldWaves.reduce((acc, w) => acc + Math.sin((s / w.wavelength) * Math.PI * 2 + w.phase), 0) /
       4.5;
 
-  const p = o.idPrefix ?? prefixOf(o);
+  const p = prefixFor(o);
   const visible = layout.chars.filter((c) => !c.isSpace);
 
   // ---- Grow ordering ----
