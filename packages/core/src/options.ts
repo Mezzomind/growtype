@@ -104,6 +104,30 @@ export interface PathStyle {
   opacity?: number;
 }
 
+/** A drop shadow under each glyph, cast in SVG space (the same direction for every glyph). */
+export interface ShadowOptions {
+  /** Horizontal offset in user units. Default 1.5. */
+  dx?: number;
+  /** Vertical offset in user units. Default 2. */
+  dy?: number;
+  /** Blur radius (Gaussian standard deviation) in user units. Default 1.5. */
+  blur?: number;
+  /** Shadow colour. Default `#000`. */
+  color?: string;
+  /** Shadow opacity, 0–1. Default 0.35. */
+  opacity?: number;
+}
+
+/** An outline around each stalk, drawn outside its fill so it doesn't thin the stem. */
+export interface StemStrokeOptions {
+  /** Outline colour. Defaults to the glyph colour. */
+  color?: string;
+  /** Outline width in user units (outside the stalk's edge). Default 1. */
+  width?: number;
+  /** Outline opacity, 0–1. Default 1. */
+  opacity?: number;
+}
+
 export interface GrowtypeOptions {
   /**
    * The text to grow. Emoji may appear anywhere: they are kept whole (ZWJ sequences, flags,
@@ -211,6 +235,10 @@ export interface GrowtypeOptions {
   palette?: readonly string[];
   /** Stem colour. Default `#7c8f55`. */
   stemColor?: string;
+  /** Drop shadow under the glyphs. Default false. */
+  glyphShadow?: boolean | ShadowOptions;
+  /** Outline the stems. Default false. */
+  stemStroke?: boolean | StemStrokeOptions;
   /** Draw the path itself as a substrate line. Default false. */
   showPath?: boolean | PathStyle;
   /** Floating spores around each character. Default false. */
@@ -277,4 +305,12 @@ export const DEFAULTS = {
   exit: { at: 0, duration: 1.2, stagger: 0.6, direction: "start" } as Required<ExitOptions>,
   spores: { count: 2.5, size: 1.4, spread: 0.9 },
   path: { width: 2, opacity: 1 },
+  glyphShadow: {
+    dx: 1.5,
+    dy: 2,
+    blur: 1.5,
+    color: "#000",
+    opacity: 0.35,
+  } as Required<ShadowOptions>,
+  stemStroke: { width: 1, opacity: 1 },
 };

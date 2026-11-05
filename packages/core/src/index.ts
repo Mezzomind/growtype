@@ -10,6 +10,8 @@ export type {
   ExitOptions,
   TextTransition,
   PathStyle,
+  ShadowOptions,
+  StemStrokeOptions,
   Justify,
   LayoutMode,
   AnchorMode,

@@ -50,6 +50,14 @@ export interface Settings {
   glyphColor: string;
   stemColor: string;
   palette: string;
+  glyphShadow: boolean;
+  shadowColor: string;
+  shadowBlur: number;
+  shadowOffset: number;
+  shadowOpacity: number;
+  stemStroke: boolean;
+  stemStrokeColor: string;
+  stemStrokeWidth: number;
   showPath: boolean;
   pathColor: string;
   pathWidth: number;
@@ -107,6 +115,14 @@ export const INITIAL: Settings = {
   glyphColor: "#24301a",
   stemColor: "#7c8f55",
   palette: "None",
+  glyphShadow: false,
+  shadowColor: "#000000",
+  shadowBlur: 1.5,
+  shadowOffset: 2,
+  shadowOpacity: 0.35,
+  stemStroke: false,
+  stemStrokeColor: "#24301a",
+  stemStrokeWidth: 1,
   showPath: true,
   pathColor: "#7c8f55",
   pathWidth: 2.5,
