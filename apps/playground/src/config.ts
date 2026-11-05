@@ -56,6 +56,14 @@ export function toConfig(s: Settings, pathData: string): GrowtypeConfig {
     glyphColor: s.glyphColor,
     ...(PALETTES[s.palette] ? { palette: PALETTES[s.palette]! } : {}),
     stemColor: s.stemColor,
+    glyphShadow: s.glyphShadow && {
+      dx: s.shadowOffset * 0.75,
+      dy: s.shadowOffset,
+      blur: s.shadowBlur,
+      color: s.shadowColor,
+      opacity: s.shadowOpacity,
+    },
+    stemStroke: s.stemStroke && { color: s.stemStrokeColor, width: s.stemStrokeWidth },
     showPath: s.showPath && { color: s.pathColor, width: s.pathWidth },
     spores: s.spores && { count: s.sporeCount, size: s.sporeSize },
     ...(s.transparent ? {} : { background: s.background }),
@@ -204,6 +212,22 @@ export function fromConfig(
     if (name) s.palette = name;
     else notes.push("Custom palettes aren't editable here; using no palette.");
   } else if ("palette" in c || "glyphColor" in c) s.palette = "None";
+  if (c.glyphShadow !== undefined) {
+    s.glyphShadow = Boolean(c.glyphShadow);
+    if (isObj(c.glyphShadow)) {
+      s.shadowColor = str(c.glyphShadow.color, s.shadowColor);
+      s.shadowBlur = num(c.glyphShadow.blur, s.shadowBlur);
+      s.shadowOffset = num(c.glyphShadow.dy, s.shadowOffset);
+      s.shadowOpacity = num(c.glyphShadow.opacity, s.shadowOpacity);
+    }
+  }
+  if (c.stemStroke !== undefined) {
+    s.stemStroke = Boolean(c.stemStroke);
+    if (isObj(c.stemStroke)) {
+      s.stemStrokeColor = str(c.stemStroke.color, s.stemStrokeColor);
+      s.stemStrokeWidth = num(c.stemStroke.width, s.stemStrokeWidth);
+    }
+  }
   if (c.showPath !== undefined) {
     s.showPath = Boolean(c.showPath);
     if (isObj(c.showPath)) {

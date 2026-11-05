@@ -526,6 +526,66 @@ export function App() {
             onChange={(v) => set("palette", v)}
           />
           <Color label="Stems" value={s.stemColor} onChange={(v) => set("stemColor", v)} />
+          <Toggle
+            label="Stem outline"
+            checked={s.stemStroke}
+            onChange={(v) => set("stemStroke", v)}
+          />
+          {s.stemStroke && (
+            <>
+              <Color
+                label="Outline colour"
+                value={s.stemStrokeColor}
+                onChange={(v) => set("stemStrokeColor", v)}
+              />
+              <Slider
+                label="Outline width"
+                value={s.stemStrokeWidth}
+                min={0.25}
+                max={4}
+                step={0.25}
+                onChange={(v) => set("stemStrokeWidth", v)}
+              />
+            </>
+          )}
+          <Toggle
+            label="Glyph shadow"
+            checked={s.glyphShadow}
+            onChange={(v) => set("glyphShadow", v)}
+          />
+          {s.glyphShadow && (
+            <>
+              <Color
+                label="Shadow colour"
+                value={s.shadowColor}
+                onChange={(v) => set("shadowColor", v)}
+              />
+              <Slider
+                label="Shadow offset"
+                value={s.shadowOffset}
+                min={0}
+                max={12}
+                step={0.5}
+                onChange={(v) => set("shadowOffset", v)}
+              />
+              <Slider
+                label="Shadow blur"
+                value={s.shadowBlur}
+                min={0}
+                max={8}
+                step={0.25}
+                onChange={(v) => set("shadowBlur", v)}
+              />
+              <Slider
+                label="Shadow opacity"
+                value={s.shadowOpacity}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={(v) => set("shadowOpacity", v)}
+              />
+            </>
+          )}
           <Toggle label="Show path" checked={s.showPath} onChange={(v) => set("showPath", v)} />
           {s.showPath && (
             <>

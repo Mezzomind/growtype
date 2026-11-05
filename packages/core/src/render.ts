@@ -20,6 +20,8 @@ import {
   type GrowOptions,
   type GrowtypeOptions,
   type PathStyle,
+  type ShadowOptions,
+  type StemStrokeOptions,
   type SporeOptions,
   type SwayOptions,
   type WaveOptions,
@@ -441,6 +443,8 @@ function render(
   const wave = sway ? opt<WaveOptions>(sway.wave, DEFAULTS.wave) : null;
   const spores = opt<SporeOptions>(o.spores, DEFAULTS.spores);
   const pathStyle = opt<PathStyle>(o.showPath, DEFAULTS.path);
+  const shadow = opt<ShadowOptions>(o.glyphShadow, DEFAULTS.glyphShadow);
+  const stemStroke = opt<StemStrokeOptions>(o.stemStroke, DEFAULTS.stemStroke);
   const exit = opt<ExitOptions>(o.exit, DEFAULTS.exit);
   const timeOffset = o.timeOffset ?? 0;
   /** An animation delay, shifted so the SVG starts `timeOffset` seconds into its timeline. */
@@ -487,6 +491,7 @@ function render(
 
   const p = prefixFor(o);
   const visible = layout.chars.filter((c) => !c.isSpace);
+  const shadowId = `${p}-shadow`;
 
   // ---- Grow ordering ----
   const order = new Map<number, number>();
@@ -717,16 +722,36 @@ function render(
     const growEnd = delay + dur;
     growEndAll = Math.max(growEndAll, growEnd);
 
+    const color = o.palette?.length
+      ? o.palette[Math.floor(r("palette") * o.palette.length)]!
+      : glyphColor;
+
     // ---- Stem ----
     const stemAttrs = {
       class: `${p}-stem`,
       fill: stemColor,
       opacity: stem.opacity < 0.995 ? fmt(stem.opacity, 2) : undefined,
     };
-    let stemMarkup =
-      stem.shapes.length === 1
-        ? `<path${attrs({ ...stemAttrs, d: stem.shapes[0]! })}/>`
-        : `<g${attrs(stemAttrs)}>${stem.shapes.map((d) => `<path d="${d}"/>`).join("")}</g>`;
+    let stemMarkup: string;
+    if (stemStroke && stemStroke.width > 0) {
+      // Outline every shape first with a doubled stroke, then fill them all on top: the stroke
+      // only shows outside the union of the shapes, so overlapping branches and knobs don't
+      // get seams where they meet, and the stalk keeps its full width.
+      const strokeColor = stemStroke.color ?? color;
+      const paths = stem.shapes.map((d) => `<path d="${d}"/>`).join("");
+      stemMarkup = `<g${attrs(stemAttrs)}><g${attrs({
+        fill: strokeColor,
+        stroke: strokeColor,
+        "stroke-width": fmt(stemStroke.width * 2),
+        "stroke-linejoin": "round",
+        opacity: stemStroke.opacity < 1 ? fmt(clamp(stemStroke.opacity, 0, 1), 2) : undefined,
+      })}>${paths}</g>${paths}</g>`;
+    } else {
+      stemMarkup =
+        stem.shapes.length === 1
+          ? `<path${attrs({ ...stemAttrs, d: stem.shapes[0]! })}/>`
+          : `<g${attrs(stemAttrs)}>${stem.shapes.map((d) => `<path d="${d}"/>`).join("")}</g>`;
+    }
     if (grow) {
       // Stretch the stalk out of its foot along its own axis. A pure transform animation:
       // cheap to composite and nothing to re-rasterise per frame (unlike an animated mask).
@@ -743,9 +768,6 @@ function render(
     }
 
     // ---- Glyph ----
-    const color = o.palette?.length
-      ? o.palette[Math.floor(r("palette") * o.palette.length)]!
-      : glyphColor;
     const transform =
       `translate(${fmt(anchorPt.x)} ${fmt(anchorPt.y)}) rotate(${fmt(rotation)})` +
       (glyphScale !== 1 ? ` scale(${fmt(glyphScale, 3)})` : "") +
@@ -763,7 +785,13 @@ function render(
           "animation-duration": sec(dur * 0.4),
         })
       : undefined;
-    let glyphGroup = `<g${attrs({ class: grow ? `${p}-pop` : undefined, style: popStyle })}>${glyphMarkup}</g>`;
+    // The shadow goes on the untransformed group so it falls the same way under every glyph,
+    // however the glyph itself is rotated or scaled.
+    let glyphGroup = `<g${attrs({
+      class: grow ? `${p}-pop` : undefined,
+      filter: shadow ? `url(#${shadowId})` : undefined,
+      style: popStyle,
+    })}>${glyphMarkup}</g>`;
 
     // ---- Exit ----
     const exitAt = exit ? exitStarts[k]! : 0;
@@ -930,6 +958,22 @@ function render(
   }
 
   const title = o.title === false ? null : (o.title ?? o.text);
+  const defs = shadow
+    ? `<defs><filter${attrs({
+        id: shadowId,
+        x: "-50%",
+        y: "-50%",
+        width: "200%",
+        height: "200%",
+        "color-interpolation-filters": "sRGB",
+      })}><feDropShadow${attrs({
+        dx: fmt(shadow.dx),
+        dy: fmt(shadow.dy),
+        stdDeviation: fmt(Math.max(0, shadow.blur)),
+        "flood-color": shadow.color,
+        "flood-opacity": fmt(clamp(shadow.opacity, 0, 1), 2),
+      })}/></filter></defs>`
+    : "";
   const animated = Boolean(grow || sway || exit);
   const body =
     `<g class="${p}-chars">${charGroups.join("")}</g>` +
@@ -945,6 +989,7 @@ function render(
       "aria-label": title ?? undefined,
     })}>` +
     (title ? `<title>${esc(title)}</title>` : "") +
+    defs +
     (animated ? `<style>${css(p, Boolean(exit || incoming?.exitCss))}</style>` : "") +
     (o.background ? `<rect width="100%" height="100%" fill="${esc(o.background)}"/>` : "") +
     pathMarkup +

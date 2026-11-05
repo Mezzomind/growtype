@@ -194,6 +194,35 @@ describe("growtype", () => {
     expect(svg).toContain('stroke="#abcdef"');
   });
 
+  test("glyph drop shadow", () => {
+    expect(renderGrowtype(opts)).not.toContain("<filter");
+    const r = growtype({
+      ...opts,
+      idPrefix: "sh",
+      glyphShadow: { dx: 3, dy: 4, blur: 2, color: "#ff0000", opacity: 0.5 },
+    });
+    expect(r.svg).toContain(
+      '<feDropShadow dx="3" dy="4" stdDeviation="2" flood-color="#ff0000" flood-opacity="0.5"/>',
+    );
+    expect(r.svg).toContain('<filter id="sh-shadow"');
+    const uses = r.svg.match(/filter="url\(#sh-shadow\)"/g) ?? [];
+    expect(uses.length).toBe(r.characters.length);
+    // The shadow colour is escaped.
+    expect(renderGrowtype({ ...opts, glyphShadow: { color: '"><script>' } })).not.toContain(
+      "<script>",
+    );
+  });
+
+  test("stem stroke draws an outline under the fill", () => {
+    expect(renderGrowtype(opts)).not.toContain("stroke-linejoin");
+    const svg = renderGrowtype({ ...opts, stemStroke: { color: "#112233", width: 1.5 } });
+    expect(svg).toContain('fill="#112233" stroke="#112233" stroke-width="3"');
+    // Defaults to the glyph colour.
+    expect(renderGrowtype({ ...opts, glyphColor: "#445566", stemStroke: true })).toContain(
+      'stroke="#445566" stroke-width="2"',
+    );
+  });
+
   test("CSS font mode emits <text> and escapes characters", () => {
     const svg = renderGrowtype({
       ...opts,
