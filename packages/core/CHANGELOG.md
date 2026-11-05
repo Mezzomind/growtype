@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.0](https://github.com/Mezzomind/growtype/compare/v0.2.3...v0.3.0) (2026-11-05)
+
+### Features
+
+* glyph drop shadow and stem stroke options ([cd1f29b](https://github.com/Mezzomind/growtype/commit/cd1f29b9436fb1d6c5594c51096597f4edab24dd))
+
 ## [0.2.3](https://github.com/Mezzomind/growtype/compare/v0.2.2...v0.2.3) (2026-10-28)
 
 ### Bug Fixes
